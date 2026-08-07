@@ -1,6 +1,6 @@
 <div align="center">
 
-![Pixel to Prediction](.github/assets/hero.png)
+![Pixel to Prediction](.github/assets/hero.webp)
 
 **Draw a digit. Watch a real convolutional network take it apart, one layer at a time.**
 
@@ -129,6 +129,8 @@ genuinely diffuse it says so, instead of inventing a tidy reason.
 
 ## The model
 
+![The network, layer by layer, with the same digit coarsening through it](.github/assets/architecture.webp)
+
 ```
 input      28x28x1
 conv1      8 filters, 5x5, pad 2   ->  28x28x8   -> ReLU        208 params
@@ -250,6 +252,12 @@ MNIST is by Yann LeCun, Corinna Cortes and Christopher Burges. The trained weigh
 repository are produced by `scripts/train.sh` and are reproducible from the seed recorded
 in `web/public/model/model.json`.
 
-The banner is built with [HyperFrames](https://hyperframes.heygen.com); its source is
-[`.github/assets/hero.source.html`](.github/assets/hero.source.html). Every other image is
-a real capture of the app.
+The banner, the architecture diagram and the share cards are built with
+[HyperFrames](https://hyperframes.heygen.com); their compositions are in
+[`.github/assets/sources/`](.github/assets/sources) and re-render with
+`hyperframes snapshot`. Every other image is a real capture of the app, composed from the
+scene's own label list so the annotations sit exactly where the renderer put them.
+
+Share cards, if you need them:
+[square](.github/assets/social-square.webp) (1080x1080) and
+[vertical](.github/assets/social-vertical.webp) (1080x1920).

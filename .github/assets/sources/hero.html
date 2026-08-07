@@ -163,13 +163,33 @@
         kernel.appendChild(el);
       }
 
-      // A stroke through the field, so the map reads as a response to something rather
-      // than as noise.
+      // An actual 3, taken from the same stroke the README captures were drawn with, so
+      // the banner and the screenshots show recognisably the same digit. A generic curve
+      // reads as noise at this size; a digit reads as a digit.
+      const STROKE = [
+        [0.32, 0.29], [0.42, 0.22], [0.55, 0.21], [0.66, 0.27], [0.66, 0.39],
+        [0.55, 0.46], [0.46, 0.49], [0.57, 0.51], [0.68, 0.58], [0.70, 0.70],
+        [0.60, 0.79], [0.45, 0.80], [0.33, 0.74],
+      ];
+      const distToSeg = (px, py, a, b) => {
+        const vx = b[0] - a[0], vy = b[1] - a[1];
+        const L = vx * vx + vy * vy;
+        let u = L ? ((px - a[0]) * vx + (py - a[1]) * vy) / L : 0;
+        u = Math.max(0, Math.min(1, u));
+        return Math.hypot(px - (a[0] + u * vx), py - (a[1] + u * vy));
+      };
+      const inkAt = (px, py, thickness) => {
+        let d = Infinity;
+        for (let i = 0; i < STROKE.length - 1; i++) {
+          d = Math.min(d, distToSeg(px, py, STROKE[i], STROKE[i + 1]));
+        }
+        return Math.max(0, 1 - d / thickness);
+      };
+
       const map = document.getElementById('map');
       for (let r = 0; r < 14; r++) {
         for (let c = 0; c < 14; c++) {
-          const d = Math.abs(c - (3 + 7 * Math.sin((r / 13) * 2.1)));
-          const v = Math.max(0, 1 - d / 2.4) * (0.55 + rnd() * 0.45);
+          const v = inkAt((c + 0.5) / 14, (r + 0.5) / 14, 0.085) * (0.6 + rnd() * 0.4);
           const el = document.createElement('i');
           // The magma ramp the app uses for magnitude: black-anchored, so zero
           // contributes nothing.

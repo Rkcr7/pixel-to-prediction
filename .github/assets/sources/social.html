@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      /*
+        One composition, two shapes. Feed --format square or vertical through
+        --variables; the layout is a single column either way, so the only thing that
+        changes is how much room the stack has to breathe.
+      */
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { overflow: hidden; background: #05060a; }
+      body { font-family: Inter, ui-sans-serif, -apple-system, 'Segoe UI', sans-serif; }
+
+      :root {
+        --text: #f2f4f8;
+        --dim: #9aa6bc;
+        --faint: #808da7;
+        --pos: #4fd8e8;
+        --neg: #ff6b81;
+        --accent: #f8b33c;
+      }
+
+      #root { position: relative; }
+      .ground {
+        position: absolute; inset: 0;
+        background:
+          radial-gradient(115% 90% at 50% 44%, rgba(30, 40, 62, 0.6) 0%, rgba(5, 6, 10, 0) 66%),
+          #05060a;
+      }
+
+      .card {
+        position: absolute; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        padding: var(--pad) 72px;
+      }
+      /* Measured and scaled to fit after build, so the square and the vertical share one
+         set of type sizes instead of two hand-tuned sets that drift apart. */
+      .inner {
+        display: flex; flex-direction: column; align-items: center;
+        transform-origin: center center;
+      }
+
+      .dot {
+        width: 15px; height: 15px; border-radius: 50%;
+        background: var(--accent); box-shadow: 0 0 30px rgba(248, 179, 60, 0.75);
+      }
+      h1 {
+        margin-top: 34px;
+        font-size: var(--h1); font-weight: 600; letter-spacing: -0.028em;
+        color: var(--text); line-height: 1.03; text-align: center;
+      }
+      .sub {
+        margin-top: 26px; font-size: var(--sub); line-height: 1.4;
+        color: var(--dim); text-align: center; max-width: 20ch;
+      }
+
+      /* The pipeline, stacked down the card so it survives a 4:5 or 9:16 crop. */
+      .flow {
+        margin: var(--flowgap) 0;
+        display: flex; flex-direction: column; align-items: center; gap: var(--gap);
+      }
+      .cap {
+        font-size: var(--cap); letter-spacing: 0.15em; text-transform: uppercase;
+        color: var(--faint); margin-top: 16px; text-align: center;
+      }
+      .step { display: flex; flex-direction: column; align-items: center; }
+      .tick {
+        width: 2px; height: var(--tick);
+        background: linear-gradient(180deg, rgba(154,166,188,0.05), rgba(154,166,188,0.4), rgba(154,166,188,0.05));
+      }
+
+      .kernel { display: grid; gap: 4px; }
+      .kernel i { border-radius: 3px; }
+      .map { display: grid; gap: 2px; }
+      .map i { border-radius: 2px; }
+      .bars { display: flex; align-items: flex-end; gap: var(--bargap); }
+      .bars i { width: var(--barw); border-radius: 5px 5px 3px 3px; }
+
+      .foot {
+        font-size: var(--foot); color: var(--faint); letter-spacing: 0.02em;
+        text-align: center; line-height: 1.6;
+      }
+      .foot b { color: var(--dim); font-weight: 500; }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="2"
+      data-width="1080"
+      data-height="1080"
+      data-fps="30"
+      data-composition-variables='{"format":{"type":"string","default":"square"}}'
+    >
+      <div class="ground clip" data-start="0" data-duration="2" data-track-index="0"></div>
+
+      <div class="card clip" data-start="0" data-duration="2" data-track-index="1">
+       <div class="inner" id="inner">
+        <div class="dot"></div>
+        <h1>Pixel to<br />Prediction</h1>
+        <p class="sub">Watch a real neural network take your handwriting apart.</p>
+
+        <div class="flow">
+          <div class="step">
+            <div class="kernel" id="kernel"></div>
+            <div class="cap">a learned filter</div>
+          </div>
+          <div class="tick"></div>
+          <div class="step">
+            <div class="map" id="map"></div>
+            <div class="cap">where it fires</div>
+          </div>
+          <div class="tick"></div>
+          <div class="step">
+            <div class="bars" id="bars"></div>
+            <div class="cap">ten scores, one answer</div>
+          </div>
+        </div>
+
+        <p class="foot">
+          <b>26,826</b> parameters &nbsp;·&nbsp; <b>99.46%</b> on MNIST<br />
+          Rust to WASM, running on your device
+        </p>
+       </div>
+      </div>
+    </div>
+
+    <script>
+      // Shape comes from the composition's own declared height, not from a variable.
+      // The renderer sizes the canvas from data-height before any script runs, so a
+      // variable can never be the source of truth for it; reading the attribute back
+      // means the layout and the canvas cannot disagree.
+      const root = document.getElementById('root');
+      const W = parseInt(root.dataset.width, 10) || 1080;
+      const H = parseInt(root.dataset.height, 10) || 1080;
+      const tall = H > 1400;
+
+      document.documentElement.style.width = W + 'px';
+      document.documentElement.style.height = H + 'px';
+      document.body.style.width = W + 'px';
+      document.body.style.height = H + 'px';
+      root.style.width = W + 'px';
+      root.style.height = H + 'px';
+
+      // One scale knob per shape, so the vertical card is not just the square one with
+      // more empty space above and below it.
+      const s = document.documentElement.style;
+      s.setProperty('--pad', tall ? '150px' : '84px');
+      s.setProperty('--h1', tall ? '104px' : '86px');
+      s.setProperty('--sub', tall ? '34px' : '29px');
+      s.setProperty('--cap', tall ? '17px' : '15px');
+      s.setProperty('--foot', tall ? '25px' : '22px');
+      s.setProperty('--gap', tall ? '46px' : '30px');
+      s.setProperty('--tick', tall ? '58px' : '38px');
+      s.setProperty('--flowgap', tall ? '64px' : '44px');
+      s.setProperty('--bargap', tall ? '15px' : '13px');
+      s.setProperty('--barw', tall ? '30px' : '27px');
+
+      const KC = tall ? 42 : 36;   // kernel cell
+      const MC = tall ? 22 : 18;   // map cell
+      const BH = tall ? 250 : 200; // winner bar height
+
+      let seed = 20260807;
+      const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+
+      const kernel = document.getElementById('kernel');
+      kernel.style.gridTemplateColumns = `repeat(5, ${KC}px)`;
+      kernel.style.gridTemplateRows = `repeat(5, ${KC}px)`;
+      for (let i = 0; i < 25; i++) {
+        const v = rnd() * 2 - 1;
+        const a = Math.min(1, Math.abs(v) * 1.15 + 0.12);
+        const el = document.createElement('i');
+        el.style.background = v >= 0 ? `rgba(79,216,232,${a})` : `rgba(255,107,129,${a})`;
+        el.style.boxShadow = `0 0 ${12 * a}px rgba(${v >= 0 ? '79,216,232' : '255,107,129'},${a * 0.5})`;
+        kernel.appendChild(el);
+      }
+
+      // An actual 3, taken from the same stroke the README captures were drawn with, so
+      // the card and the screenshots are recognisably the same digit. A generic curve
+      // reads as noise at this size; a digit reads as a digit.
+      const STROKE = [
+        [0.32, 0.29], [0.42, 0.22], [0.55, 0.21], [0.66, 0.27], [0.66, 0.39],
+        [0.55, 0.46], [0.46, 0.49], [0.57, 0.51], [0.68, 0.58], [0.70, 0.70],
+        [0.60, 0.79], [0.45, 0.80], [0.33, 0.74],
+      ];
+      const distToSeg = (px, py, a, b) => {
+        const vx = b[0] - a[0], vy = b[1] - a[1];
+        const L = vx * vx + vy * vy;
+        let u = L ? ((px - a[0]) * vx + (py - a[1]) * vy) / L : 0;
+        u = Math.max(0, Math.min(1, u));
+        return Math.hypot(px - (a[0] + u * vx), py - (a[1] + u * vy));
+      };
+      const inkAt = (px, py, thickness) => {
+        let d = Infinity;
+        for (let i = 0; i < STROKE.length - 1; i++) {
+          d = Math.min(d, distToSeg(px, py, STROKE[i], STROKE[i + 1]));
+        }
+        return Math.max(0, 1 - d / thickness);
+      };
+
+      const map = document.getElementById('map');
+      map.style.gridTemplateColumns = `repeat(14, ${MC}px)`;
+      map.style.gridTemplateRows = `repeat(14, ${MC}px)`;
+      for (let r = 0; r < 14; r++) {
+        for (let c = 0; c < 14; c++) {
+          const t = Math.min(1, inkAt((c + 0.5) / 14, (r + 0.5) / 14, 0.085) * (0.6 + rnd() * 0.4));
+          const R = Math.round(255 * Math.min(1, t * 1.9));
+          const G = Math.round(255 * Math.max(0, t * 1.6 - 0.66));
+          const B = Math.round(255 * (t < 0.5 ? t * 1.5 : Math.max(0, 1.5 - t * 1.7)));
+          const el = document.createElement('i');
+          el.style.background = `rgba(${R},${G},${B},${Math.min(1, t * 1.7)})`;
+          if (t > 0.55) el.style.boxShadow = `0 0 ${14 * t}px rgba(${R},${G},${B},0.55)`;
+          map.appendChild(el);
+        }
+      }
+
+      const bars = document.getElementById('bars');
+      bars.style.height = BH + 'px';
+      [0.06, 0.09, 0.13, 1, 0.1, 0.17, 0.07, 0.12, 0.09, 0.07].forEach((f) => {
+        const el = document.createElement('i');
+        const win = f === 1;
+        el.style.height = Math.round(BH * f) + 'px';
+        el.style.background = win ? 'var(--accent)' : 'rgba(79,216,232,0.42)';
+        if (win) el.style.boxShadow = '0 0 52px rgba(248,179,60,0.55)';
+        bars.appendChild(el);
+      });
+
+      // Fit the built stack to the card. Sizes above are authored for the vertical shape,
+      // where everything has room; the square gets the same design scaled down rather
+      // than a second set of numbers to keep in sync.
+      const inner = document.getElementById('inner');
+      const padY = parseFloat(getComputedStyle(document.querySelector('.card')).paddingTop);
+      const avail = H - padY * 2;
+      const natural = inner.scrollHeight;
+      if (natural > avail) inner.style.transform = `scale(${(avail / natural).toFixed(4)})`;
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines['main'] = gsap.timeline({ paused: true });
+    </script>
+  </body>
+</html>
