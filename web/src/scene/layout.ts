@@ -68,11 +68,30 @@ export function stationFrames(aspect: number): StationFrame[] {
   ];
 }
 
-/** Distance at which a box of `width` x `height` fits the frame, with margin. */
+/**
+ * The part of the frame the scene is allowed to use.
+ *
+ * The story panel is a fixed slab of the viewport, but the camera was framing content
+ * against the whole of it, so the two were laid out in ignorance of each other and
+ * collided whenever the content was wide. Reserving the gutter here fixes every stage at
+ * once, which no amount of nudging individual labels could do.
+ *
+ * On desktop the panel is on the left, so the reserve is horizontal. In portrait it moves
+ * to the bottom, so the reserve is vertical instead.
+ */
+export function safeArea(aspect: number): { width: number; height: number } {
+  // Deliberately gentle. A full reserve for the panel's whole width would clear it
+  // completely but shrink every stage by a third, which costs more than the overlap did.
+  return isPortrait(aspect) ? { width: 0.95, height: 0.72 } : { width: 0.8, height: 0.92 };
+}
+
+/** Distance at which a box of `width` x `height` fits the usable part of the frame. */
 export function fitDistance(frame: StationFrame, aspect: number): number {
   const t = Math.tan(FOV / 2);
-  const byHeight = (frame.height * frame.margin) / 2 / t;
-  const byWidth = (frame.width * frame.margin) / 2 / (t * Math.max(aspect, 0.2));
+  const safe = safeArea(aspect);
+  const byHeight = (frame.height * frame.margin) / safe.height / 2 / t;
+  const byWidth =
+    (frame.width * frame.margin) / safe.width / 2 / (t * Math.max(aspect, 0.2));
   return Math.max(byHeight, byWidth, 3.5);
 }
 
@@ -195,6 +214,19 @@ export function pool2Slot(i: number, z: number): Vec3 {
 }
 
 export const CANDIDATE_X = 4.05;
+
+/** Zero line of the for/against meter that sits beside each candidate. */
+export const RAIL_AXIS_X = CANDIDATE_X - 1.42;
+
+/**
+ * The line the station's explanatory tags sit on.
+ *
+ * Below the lowest candidate rail (y = -3.23) and still comfortably inside the frame:
+ * the dense station is framed on its width, so the visible half-height is about 4.5 world
+ * units against content that stops at 3.2. Putting the text here instead of beside what
+ * it describes is what keeps it off the rails without pulling the camera back.
+ */
+export const FLOOR_LABEL_Y = -3.85;
 
 /** The ten candidate digits, stacked vertically while the network is deciding. */
 export function candidateSlot(digit: number, z: number): Vec3 {

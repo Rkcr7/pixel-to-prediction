@@ -23,9 +23,12 @@ import {
   barX,
   candidateSlot,
   CANDIDATE_X,
+  RAIL_AXIS_X,
+  FLOOR_LABEL_Y,
   conv1Grid,
   conv2Grid,
   fitDistance,
+  safeArea,
   POOL2_GRID,
   FOV,
   gridCell,
@@ -92,6 +95,28 @@ function maxNegativeMagnitude(a: ArrayLike<number>): number {
   return m || 1;
 }
 
+/**
+ * A high percentile of the positive values, used instead of the maximum where a layer is
+ * sparse enough that its peak is an outlier.
+ *
+ * Measured on this network: conv2 is 81% zeros, its maximum is 5.68, and its 90th
+ * percentile is 0.31. Dividing by the maximum therefore renders nine cells in ten below
+ * 6% brightness, so each map reads as an empty field with two or three sparks in it — the
+ * data is right and the picture is unreadable. Scaling by the 99.5th percentile lifts the
+ * body of the distribution into view and clips only the handful of cells that were
+ * already saturating.
+ *
+ * Still one scale for the whole layer, not one per channel: a quiet map has to keep
+ * looking quiet, because the next beat ranks them against each other.
+ */
+function positivePercentile(a: ArrayLike<number>, p: number): number {
+  const positives: number[] = [];
+  for (let i = 0; i < a.length; i++) if (a[i] > 0) positives.push(a[i]);
+  if (positives.length === 0) return 1;
+  positives.sort((x, y) => x - y);
+  return positives[Math.min(positives.length - 1, Math.floor((positives.length - 1) * p))] || 1;
+}
+
 export class Scene {
   readonly renderer: Renderer;
   private run: Run | null = null;
@@ -143,13 +168,27 @@ export class Scene {
   ) {
     if (opacity <= 0.012) return;
     const p = this.renderer.project(world);
-    if (!p.visible || p.x < -0.25 || p.x > 1.25 || p.y < -0.25 || p.y > 1.25) return;
+    if (!p.visible) return;
+
+    // Fade a label out as the thing it names leaves the frame, instead of letting it
+    // pile up against the edge and get clipped.
+    //
+    // The annotation layer will nudge a label back inside by up to 5% of the frame, so
+    // an anchor that far out is still fully recoverable and stays at full strength. Past
+    // that the nudge has run out, and the honest thing is to let the label go: a tag
+    // pinned to an edge is pointing at something the viewer cannot see. This is what
+    // retires the filter-row caption when the camera pushes in for the sweep, without
+    // needing a hand-written gate on every such beat.
+    const outside = -Math.min(p.x, 1 - p.x, p.y, 1 - p.y);
+    const inFrame = clamp01((0.1 - outside) / 0.05);
+    if (inFrame <= 0.02) return;
+
     this.labels.push({
       id,
       text,
       x: p.x,
       y: p.y,
-      opacity,
+      opacity: opacity * inFrame,
       kind: options?.kind,
       dx: options?.dx,
       dy: options?.dy,
@@ -259,11 +298,14 @@ export class Scene {
 
     // One normalisation per layer, not per channel, so channels stay comparable to
     // each other — a dim feature map should look dim.
+    // conv1 keeps the true maximum: it is dense enough that the peak is representative,
+    // and its signed rendering needs the positive and negative sides on one honest scale.
+    // The deeper layers are sparse and long-tailed, so their peaks are outliers.
     this.scales = {
       conv1: 1 / maxPositive(run.conv1Pre),
-      pool1: 1 / maxPositive(run.pool1),
-      conv2: 1 / maxPositive(run.conv2),
-      pool2: 1 / maxPositive(run.pool2),
+      pool1: 1 / positivePercentile(run.pool1, 0.99),
+      conv2: 1 / positivePercentile(run.conv2, 0.99),
+      pool2: 1 / positivePercentile(run.pool2, 0.99),
     };
     r.setStackNegScale('conv1', 1 / maxNegativeMagnitude(run.conv1Pre));
     r.setStackNegScale('conv2', 1);
@@ -479,10 +521,21 @@ export class Scene {
     // one element the rest of that content is no longer in shot, so the aim has to come
     // back down with the zoom or the subject falls out of the bottom of the frustum.
     const cy = lerp(frames[i].centerY, frames[i + 1].centerY, f) + (v['cam.centerAdjust'] ?? 0);
+
+    // Centre the content in the usable part of the frame rather than the whole of it,
+    // so it sits clear of the story panel instead of underneath it. Aiming the camera
+    // away from the reserved side pushes the content the other way on screen.
+    const safe = safeArea(aspect);
+    const visibleHeight = 2 * dist * Math.tan(FOV / 2);
+    const shiftX = ((1 - safe.width) / 2) * visibleHeight * aspect;
+    const shiftY = ((1 - safe.height) / 2) * visibleHeight;
+    const gutterX = this.portrait ? 0 : -shiftX;
+    const gutterY = this.portrait ? shiftY : 0;
+
     const px = this.parallaxEnabled ? this.parallax[0] * 0.4 : 0;
     const py = this.parallaxEnabled ? this.parallax[1] * 0.26 : 0;
-    this.camera.eye = [px, cy + py, z + dist];
-    this.camera.target = [px * 0.35, cy + py * 0.25, z];
+    this.camera.eye = [gutterX + px, cy + gutterY + py, z + dist];
+    this.camera.target = [gutterX + px * 0.35, cy + gutterY + py * 0.25, z];
     this.camera.fov = FOV;
   }
 
@@ -630,7 +683,13 @@ export class Scene {
       const size = isHero ? lerp(0.86, 1.32, lift) : 0.86;
       // Stage 4 is about pooling, and the filter row sits above the frame it needs.
       // Clear it out so the close-up has the shot to itself.
-      r.kernel(i, pos, size, o * dim * (1 - focus), 3.4, highlight);
+      //
+      // The same applies to the push-in for the sweep. The hero travels down out of the
+      // row and stays in shot; the other seven do not, and leaving them up means the
+      // camera slices the row in half and leaves a band of clipped tiles jammed against
+      // the top edge. They come back with the spread.
+      const rowVisible = isHero ? 1 : 1 - lift;
+      r.kernel(i, pos, size, o * dim * (1 - focus) * rowVisible, 3.4, highlight);
 
       if (isHero && lift > 0.05) {
         this.label('s3.thisFilter', 'this filter', [pos[0], pos[1] - 1.0, pos[2]], lift * fade * 0.9, {
@@ -642,7 +701,17 @@ export class Scene {
     const kernelsIn = (v['s3.kernel0'] ?? 0) * fade;
     // Clear of the kernel row rather than sitting on top of it. The row's top edge is
     // at kernelSlot.y + half the tile, so the label has to start above that.
-    this.label('s3.kernels', 'the 8 filters it learned', [0, 4.95, z], kernelsIn * 0.9, {
+    //
+    // Which leaves it hugging the top of the frame, and the moment any beat pushes the
+    // camera in — the hero sweep here, the pooling close-up in the next stage — it goes
+    // over the edge.
+    //
+    // So it retires for good once the hero leaves the row, and does not come back for the
+    // spread. Its job is done by then: from the sweep onwards the subject is one specific
+    // filter, which `this filter` is already naming, and a caption that blinks off and
+    // back on reads as a glitch rather than as a second thought.
+    const retired = Math.max(lift, spread);
+    this.label('s3.kernels', 'the 8 filters it learned', [0, 4.95, z], kernelsIn * (1 - retired) * 0.9, {
       kind: 'tag',
     });
     // Name the hero filter so the sweep is clearly one specific filter, not "the network".
@@ -656,12 +725,32 @@ export class Scene {
     this.label(
       's3.relu',
       'anything below zero becomes zero',
-      [0, -3.5, z],
-      Math.max(v['s3.reluHint'] ?? 0, relu) * fade * 0.95,
+      [0, -3.18, z],
+      // Gone before the pooling close-up. This station stays on screen into stage 4, and
+      // a caption about ReLU sitting under a 2x2 contest is describing the previous
+      // operation — worse than saying nothing, because it is still true and still wrong.
+      Math.max(v['s3.reluHint'] ?? 0, relu) * (1 - focus) * fade * 0.95,
       { kind: 'tag' },
     );
 
     const heroCenter: Vec3 = [0, 0, z];
+
+    // The image being read, ghosted under the hero plate.
+    //
+    // The response plate is empty until the sweep has passed over it, so without this the
+    // first second and a half of the station is a caption floating in an empty frame with
+    // a row of tiles jammed along the top. The ghost also makes the claim visible instead
+    // of implied — this filter, that image, this response — which is the whole point of
+    // the stage. It leaves as the plates spread, once the response can speak for itself.
+    const heroIn = (v['s3.hero'] ?? 0) * (1 - spread) * (1 - focus) * fade;
+    if (heroIn > 0.004) {
+      r.plate('ghost', 0, [0, 0, z - 0.06], [3.9, 3.9], {
+        opacity: heroIn * 0.34,
+        valueScale: 1,
+        cellBias: 0.4,
+      });
+    }
+
     for (let i = 0; i < C1; i++) {
       const staged = v[`s3.plate${i}`] ?? 0;
       const heroOn = i === hero ? (v['s3.hero'] ?? 0) : 0;
@@ -752,8 +841,12 @@ export class Scene {
       // readable statement: this unit fires on the loop, that one on the tail.
       // Faint enough to be a reference frame, not the subject. Too strong and every
       // tile just reads as "the digit again" instead of "where this feature fires".
+      // Measured at 0.32 this went wrong in exactly the way the note above warns about:
+      // conv2 fires on 19% of its cells, so the ghost was the brightest thing in every
+      // tile and the grid read as sixteen copies of the drawing rather than sixteen
+      // different things found in it. It has to stay under the activation, not over it.
       r.plate('ghost', 0, [pos[0], pos[1], pos[2] - 0.05], [size, size], {
-        opacity: opacity * 0.32 * dim,
+        opacity: opacity * 0.13 * dim,
         valueScale: 1,
         cellBias: 0,
       });
@@ -802,7 +895,12 @@ export class Scene {
     // same grid as those features, so the three terms of the product can be laid side by
     // side: what the unit wants to see, what the drawing has, and where they agree.
     // Without this the 32 lit and unlit dots later on are unexplained decoration.
-    const panels = (v['s5.panels'] ?? 0) * (1 - (v['s5.lattice'] ?? 0));
+    // The panels hand over to the lattice rather than cross-fading with it. Their column
+    // headings and the lattice's own heading occupy the same band across the top of the
+    // station, so a linear crossfade prints "what your digit has" over "32 hidden units"
+    // at half strength each for about half a second.
+    const lattice = v['s5.lattice'] ?? 0;
+    const panels = (v['s5.panels'] ?? 0) * clamp01(1 - lattice * 3);
     const agreeIn = v['s5.agree'] ?? 0;
     const f = this.featured;
 
@@ -896,8 +994,10 @@ export class Scene {
       const o = (v[`s5.cand${c}`] ?? 0) * decisionFade;
       if (o <= 0.002) continue;
       const home = candidateSlot(c, z);
-      // Clear of the container so the percentage label has somewhere to sit.
-      const barTarget: Vec3 = [barX(c), BAR_BASE_Y + BAR_MAX_HEIGHT + 1.0, z];
+      // Clear of the container so the percentage label has somewhere to sit. A full bar
+      // reaches BAR_MAX_HEIGHT and its reading sits half a unit past that, so the glyph
+      // row needs the rest of the gap to itself.
+      const barTarget: Vec3 = [barX(c), BAR_BASE_Y + BAR_MAX_HEIGHT + 1.3, z];
       const pos = mixVec(home, barTarget, gather);
       const mass = positiveMass[c] / massMax;
       // Once the answer locks, the winning candidate is the only one still fully lit.
@@ -926,7 +1026,7 @@ export class Scene {
         const unit = (1.05 / oppositionMax) * weigh;
         const forLen = positiveMass[c] * unit;
         const againstLen = negativeMass[c] * unit;
-        const axis = pos[0] - 1.42;
+        const axis = RAIL_AXIS_X;
 
         r.sprite([axis, pos[1], pos[2] - 0.02], [0.014, 0.3], CHROME, meter * 0.5, {
           mode: SPRITE_BAR,
@@ -970,14 +1070,31 @@ export class Scene {
       block * showGroups * (1 - (v['s5.panels'] ?? 0)) * 0.9,
       { kind: 'tag' },
     );
-    this.label('s5.units', '32 hidden units', [HIDDEN_X, 2.72, z], (v['s5.unit0'] ?? 0) * showGroups * 0.9, {
-      kind: 'tag',
-    });
+    this.label(
+      's5.units',
+      '32 hidden units',
+      [HIDDEN_X, 2.72, z],
+      (v['s5.unit0'] ?? 0) * clamp01((lattice - 0.45) / 0.55) * showGroups * 0.9,
+      { kind: 'tag' },
+    );
     // The lit/unlit pattern is meaningless until this is said out loud.
+    //
+    // Both of these sit on a floor line below everything else in the station rather than
+    // near what they describe. The candidate rails reach down to y = -3.23 and span
+    // x = 1.58 to 3.68, so anything in the lower middle of the frame lands on top of them.
+    // There is vertical headroom to spare here (the dense station is framed on its width,
+    // which leaves the visible half-height at 4.5 world units against content that stops
+    // at 3.2), so dropping the text costs nothing, where zooming out to make room would
+    // shrink the whole station.
+    //
+    // They are also kept short deliberately. Uppercase tracked text is measurably slower
+    // to read past about five words, so a tag cannot carry the explanation however long
+    // it is left up — that belongs to the caption. What is left is a caption-width gap
+    // between the two, which is what keeps them from running into each other.
     this.label(
       's5.fired',
-      `${this.featured.fired} of 32 fired. The rest summed below zero, and ReLU silenced them.`,
-      [HIDDEN_X, -2.95, z],
+      `${this.featured.fired} of 32 units fired`,
+      [HIDDEN_X, FLOOR_LABEL_Y, z],
       (v['s5.unit31'] ?? 0) * showGroups * (v['s5.lattice'] ?? 0) * 0.95,
       { kind: 'tag' },
     );
@@ -986,8 +1103,8 @@ export class Scene {
     });
     this.label(
       's5.sign',
-      'cyan argues for, coral argues against',
-      [HIDDEN_X + 1.6, -3.15, z],
+      'cyan argues for, coral against',
+      [RAIL_AXIS_X, FLOOR_LABEL_Y, z],
       (v['s5.flowB'] ?? 0) * showGroups * 0.9,
       { kind: 'tag' },
     );
@@ -1048,11 +1165,18 @@ export class Scene {
       alpha,
       { mode: SPRITE_BAR, radius: 0.05, softness: 0.02, intensity: 1.7 },
     );
+    // This label and the gate verdict below share one slot, because both are captions on
+    // the same running total and there is nowhere else on that line to put them.
+    //
+    // Sharing a slot means they must hand over, not cross-fade: two sentences at 50%
+    // printed over each other are unreadable, and that is exactly what a linear
+    // crossfade produces in the middle. So the first one leaves in the opening third of
+    // the gate beat, and the second arrives in the closing half, with a gap between.
     this.label(
       's5.sumLabel',
       'add all 784 of them up',
       [0, SUM_Y + 0.62, z],
-      alpha * sumT * (1 - gate) * 0.95,
+      alpha * sumT * clamp01(1 - gate * 3) * 0.95,
       { kind: 'tag' },
     );
 
@@ -1076,7 +1200,7 @@ export class Scene {
           ? `${f.pre.toFixed(1)} is above zero, so this unit fires`
           : `${f.pre.toFixed(1)} is below zero, so ReLU silences it`,
         [0, SUM_Y + 0.62, z],
-        alpha * gate * 0.95,
+        alpha * clamp01((gate - 0.45) / 0.55) * 0.95,
         { kind: 'tag' },
       );
       this.label(
@@ -1158,7 +1282,19 @@ export class Scene {
 
       // Which digit this bar is. The ghost prototypes above are evocative but not
       // unambiguous, and at this point in the story precision matters more than mood.
-      this.label(`s6.d${c}`, String(c), [barX(c), BAR_BASE_Y - 0.34, z], show * fade * 0.85, {
+      //
+      // These are diverging bars, so every column has a free side of the axis: the digit
+      // goes on whichever side its own bar is not using. A fixed row below the axis is
+      // what the raw-score beat cannot have — five of the ten logits are negative here,
+      // and their bars hang straight down through it, printing each digit inside its own
+      // bar. During the softmax beats every value is positive and the row is uniformly
+      // below the axis, which is the ordinary category axis it looks like.
+      // 0.52 rather than the 0.34 the value labels use. A bar is a bloomed sprite with a
+      // rounded cap, so its lit area reaches roughly a third of a unit past its geometry,
+      // and the winner's bar is the brightest thing on screen — at 0.34 the winning digit
+      // sits in its own bar's halo and turns to silhouette.
+      const digitY = h >= 0 ? BAR_BASE_Y - 0.52 : BAR_BASE_Y + 0.52;
+      this.label(`s6.d${c}`, String(c), [barX(c), digitY, z], show * fade * 0.85, {
         kind: 'value',
       });
 
@@ -1176,10 +1312,15 @@ export class Scene {
         strength = show * (1 - exp);
       }
       if (text) {
+        // Always just past the far end of its own bar, on the side the digit is not
+        // using. The two can never meet: they sit on opposite sides of the axis whenever
+        // the bar is short, and a full bar's length apart whenever it is long. Same 0.5
+        // clearance as the digit row, for the same reason — the winner's bar blooms.
+        const valueY = BAR_BASE_Y + h + (h >= 0 ? 0.5 : -0.5);
         this.label(
           `s6.v${c}`,
           text,
-          [barX(c), BAR_BASE_Y + h + (h >= 0 ? 0.34 : -0.34), z],
+          [barX(c), valueY, z],
           strength * fade * (isWinner ? 1 : 0.72),
           { kind: 'value' },
         );
@@ -1189,21 +1330,31 @@ export class Scene {
     // Name the reading. Softmax is two operations and calling them out as they happen is
     // the difference between "the bars moved" and "the gaps were stretched, then the
     // total was split".
-    this.label('s6.readRaw', 'raw score', [0, BAR_MAX_HEIGHT + 0.4, z], show * (1 - exp) * fade * 0.9, {
-      kind: 'tag',
-    });
+    //
+    // All three share one slot above the bars, so they hand over rather than cross-fade:
+    // "raw score" leaves in the first third of the exponential beat, "exponentiate"
+    // arrives in its last half and leaves again in the first third of the normalise
+    // beat. Overlapping them would print two sentences on each other at half strength,
+    // which is the one thing a caption may never do.
+    this.label(
+      's6.readRaw',
+      'raw score',
+      [0, BAR_MAX_HEIGHT + 0.4, z],
+      show * clamp01(1 - exp * 3) * fade * 0.9,
+      { kind: 'tag' },
+    );
     this.label(
       's6.readExp',
       'exponentiate: the gaps stretch',
       [0, BAR_MAX_HEIGHT + 0.4, z],
-      exp * (1 - norm) * fade * 0.9,
+      clamp01((exp - 0.45) / 0.55) * clamp01(1 - norm * 3) * fade * 0.9,
       { kind: 'tag' },
     );
     this.label(
       's6.readNorm',
       'one unit of certainty, split ten ways',
       [0, BAR_MAX_HEIGHT + 0.4, z],
-      norm * fade * 0.9,
+      clamp01((norm - 0.45) / 0.55) * fade * 0.9,
       { kind: 'tag' },
     );
   }

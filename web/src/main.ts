@@ -322,7 +322,12 @@ class App {
 
     $('resultDigit').textContent = String(e.top1);
     $('resultPct').textContent = formatConfidence(e.p1);
-    $('resultPhrase').textContent = `${verdict(e)} ${words.confidence}.`;
+    // `verdict` already ends its own sentence, so the confidence phrase starts a new one
+    // and has to be capitalised. Joined raw it reads "That is a 3. no doubt at all."
+    const confidence = words.confidence;
+    $('resultPhrase').textContent = `${verdict(e)} ${confidence
+      .charAt(0)
+      .toUpperCase()}${confidence.slice(1)}.`;
     $('resultReason').textContent = words.reason;
     $('resultCounter').textContent = words.counter;
 

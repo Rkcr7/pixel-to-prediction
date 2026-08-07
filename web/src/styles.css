@@ -435,7 +435,7 @@ body:not([data-mode='loading']) .boot {
   left: clamp(16px, 4vw, 40px);
   top: 50%;
   transform: translateY(-50%);
-  max-width: min(31ch, 42vw);
+  max-width: min(27ch, 34vw);
   display: grid;
   gap: 10px;
   opacity: 0;
@@ -542,6 +542,21 @@ body:not([data-mode='loading']) .boot {
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-dim);
+}
+
+/*
+ * The closing thought.
+ *
+ * It lives here rather than in the timeline because the story panel is replaced by this
+ * card the moment the answer lands, so a caption written for the last stage would play to
+ * an empty slot. Set below the distribution, quiet enough to be a footnote and not a
+ * finding.
+ */
+.result__origin {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-faint);
 }
 
 .result__actions {
