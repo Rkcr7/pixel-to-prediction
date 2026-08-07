@@ -151,6 +151,24 @@ const CONV2_PORTRAIT: GridSpec = { cols: 2, rows: 8, cell: 2.02, plate: 1.82 };
 export const conv1Grid = (aspect: number): GridSpec =>
   isPortrait(aspect) ? CONV1_PORTRAIT : CONV1_LANDSCAPE;
 
+/**
+ * The caption line under the conv1 grid.
+ *
+ * Derived from the grid rather than written down, because the grid changes shape between
+ * orientations and a fixed depth cannot be below both. The old constant of -3.18 was set
+ * against the 4x2 landscape grid, whose lowest plate ends at -2.56; the 2x4 portrait grid
+ * reaches -5.34, so the same number landed the caption *on top of* the bottom row of
+ * feature maps.
+ *
+ * The 0.35 clearance is measured, not chosen: at -2.56 - 0.35 the label's box ends about
+ * 25px above the transport on a 1080p window, and the transport is the lowest thing this
+ * can collide with.
+ */
+export function conv1CaptionY(aspect: number): number {
+  const g = conv1Grid(aspect);
+  return -((g.rows / 2 - 0.5) * g.cell + g.plate / 2) - 0.35;
+}
+
 export const conv2Grid = (aspect: number): GridSpec =>
   isPortrait(aspect) ? CONV2_PORTRAIT : CONV2_LANDSCAPE;
 

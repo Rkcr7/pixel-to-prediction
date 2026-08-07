@@ -274,6 +274,9 @@ class App {
   private setMode(mode: Mode) {
     this.mode = mode;
     document.body.dataset.mode = mode;
+    // The panel and the transport come and go with the mode, so the label floor they set
+    // is only valid once the new mode's layout exists.
+    this.measureChrome();
     // Entering a mode is deliberate input, so the controls should be there for it.
     this.wakeChrome(mode === 'reveal' ? 2600 : 9_000);
   }
@@ -575,6 +578,50 @@ class App {
 
   private resize() {
     this.scene.renderer.resize(window.innerWidth, window.innerHeight);
+    this.measureChrome();
+  }
+
+  /**
+   * Tell the scene how far down the page a label may go.
+   *
+   * Measured here rather than in the scene because this is the layer that owns the DOM,
+   * and measured rather than assumed because the panel's share of the viewport is a CSS
+   * outcome, not a constant: on a 390x806 phone it starts at 0.75 of the height, on a
+   * 360x640 one at 0.68. The scene's camera reserve is a fixed fraction, so on the short
+   * phone it frames content into space the panel already occupies.
+   *
+   * When the panel is a bottom slab it is the lowest thing a label can hide under. When
+   * it is a left-hand column it runs most of the height and is not a floor at all, so the
+   * transport is. Which one it currently is comes from its measured width, not from
+   * `Scene.stacked`: that flag is set inside the draw loop, and `resize` runs before the
+   * first frame, so reading it here latched the wrong answer on load.
+   *
+   * The 18px is half a line of type plus a little air.
+   */
+  private chromeMeasured = -1e9;
+
+  private measureChrome() {
+    const h = Math.max(1, window.innerHeight);
+    // Which panel is up comes from the mode, not from the panel's own opacity. These are
+    // faded in and out, so on the frame the mode changes the incoming panel still reads 0
+    // and asking it whether it is visible answers about the state being left.
+    //
+    // A left-hand column is not a floor; only the stacked bottom slab is. That question is
+    // `Scene.stacked`, and it is the app's single answer to it — a "does it span most of
+    // the width" test here landed exactly on its own threshold at 360px, where the panel
+    // measures 324 against a 324 bound.
+    //
+    // The transport is a floor whether or not it is currently faded out, because it wakes
+    // on any input without a mode change. Letting a label sit under a sleeping transport
+    // is precisely the collision this exists to stop.
+    const panelId = this.mode === 'result' ? 'result' : this.mode === 'reveal' ? 'story' : null;
+    const panel = panelId && this.scene.stacked ? $(panelId).getBoundingClientRect() : null;
+    const transport = $('transport').getBoundingClientRect();
+    const floor = Math.min(
+      panel && panel.height > 0 ? panel.top : h,
+      transport.height > 0 ? transport.top : h,
+    );
+    this.scene.labelFloor = (floor - 18) / h;
   }
 
   /**
@@ -656,6 +703,17 @@ class App {
     if (this.contextLost) return;
     const frameMs = this.lastFrame ? Math.min(64, now - this.lastFrame) : 16.7;
     this.lastFrame = now;
+
+    // The panels fade and slide between modes, and a mobile browser's own chrome comes and
+    // goes as you scroll, so a floor measured once at the moment of a mode change is stale
+    // a third of a second later. Four times a second is often enough to keep up with any
+    // of that and rare enough that the forced layout it costs does not show up in a frame
+    // budget. It runs before the draw, so the read never lands between the annotation
+    // layer's writes.
+    if (now - this.chromeMeasured > 250) {
+      this.chromeMeasured = now;
+      this.measureChrome();
+    }
 
     if (this.score) {
       const t = this.player.advance(frameMs / 1000);

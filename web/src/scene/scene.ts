@@ -28,6 +28,7 @@ import {
   railAxisX,
   floorLabelY,
   conv1Grid,
+  conv1CaptionY,
   conv2Grid,
   fitDistance,
   safeArea,
@@ -125,6 +126,15 @@ export class Scene {
   readonly renderer: Renderer;
   private run: Run | null = null;
   private scales = { conv1: 1, pool1: 1, conv2: 1, pool2: 1 };
+  /**
+   * How much of conv1 the activation actually deletes, counted from the real
+   * pre-activation field.
+   *
+   * Stage 3's whole claim is arithmetic — below zero becomes zero — and it was being made
+   * with nothing on screen carrying a number, so a reader saw some colour leave and had
+   * no way to check the claim or judge its size. This is the size.
+   */
+  private reluCut = { negative: 0, total: 0 };
   private post: PostState = { ...DEFAULT_POST };
   private camera: CameraState = { eye: [0, 0, 7.2], target: [0, 0, 0], fov: FOV };
 
@@ -204,16 +214,37 @@ export class Scene {
     }
   }
 
+  /**
+   * Lowest viewport fraction a label's centre may occupy, measured from the live chrome.
+   *
+   * The camera's own reserve comes from `safeArea`, whose portrait numbers were measured
+   * once on a 390x806 viewport. They are right there and wrong on a short phone: at
+   * 360x640 the story panel starts at 0.68 of the height while the reserve assumes 0.745,
+   * so the station is framed into space the panel is already sitting in.
+   *
+   * Correcting the reserve itself would re-frame every stage on every phone, so that is
+   * reported rather than done here.
+   *
+   * Opt-in per label, not global. Applying it to everything did keep every label off the
+   * chrome, but a floor rescues a label by stacking it on one line, and on a 360x640
+   * viewport that turned two clean stage-5 captions into an overlapping pair. It is used
+   * by the captions that hang below their station and have nowhere else to go.
+   */
+  labelFloor = 1;
+
   private label(
     id: string,
     text: string,
     world: Vec3,
     opacity: number,
-    options?: { kind?: 'tag' | 'value'; dx?: number; dy?: number },
+    options?: { kind?: 'tag' | 'value'; dx?: number; dy?: number; floor?: boolean },
   ) {
     if (opacity <= 0.012) return;
     const p = this.renderer.project(world);
     if (!p.visible) return;
+    // Applied before the in-frame test, so a label lifted off the chrome is judged where
+    // it will actually be drawn rather than where the projection put it.
+    const y = options?.floor ? Math.min(p.y, this.labelFloor) : p.y;
 
     // Fade a label out as the thing it names leaves the frame, instead of letting it
     // pile up against the edge and get clipped.
@@ -224,7 +255,7 @@ export class Scene {
     // pinned to an edge is pointing at something the viewer cannot see. This is what
     // retires the filter-row caption when the camera pushes in for the sweep, without
     // needing a hand-written gate on every such beat.
-    const outside = -Math.min(p.x, 1 - p.x, p.y, 1 - p.y);
+    const outside = -Math.min(p.x, 1 - p.x, y, 1 - y);
     const inFrame = clamp01((0.1 - outside) / 0.05);
     if (inFrame <= 0.02) return;
 
@@ -232,7 +263,7 @@ export class Scene {
       id,
       text,
       x: p.x,
-      y: p.y,
+      y,
       opacity: opacity * inFrame,
       kind: options?.kind,
       dx: options?.dx,
@@ -352,6 +383,10 @@ export class Scene {
       conv2: 1 / positivePercentile(run.conv2, 0.99),
       pool2: 1 / positivePercentile(run.pool2, 0.99),
     };
+    let negative = 0;
+    for (let i = 0; i < run.conv1Pre.length; i++) if (run.conv1Pre[i] < 0) negative++;
+    this.reluCut = { negative, total: run.conv1Pre.length };
+
     r.setStackNegScale('conv1', 1 / maxNegativeMagnitude(run.conv1Pre));
     r.setStackNegScale('conv2', 1);
     r.setStackNegScale('input', 1);
@@ -797,16 +832,55 @@ export class Scene {
       (v['s3.hero'] ?? 0) * (1 - spread) * fade,
       { kind: 'tag' },
     );
-    this.label(
-      's3.relu',
-      'anything below zero becomes zero',
-      [0, -3.18, z],
-      // Gone before the pooling close-up. This station stays on screen into stage 4, and
-      // a caption about ReLU sitting under a 2x2 contest is describing the previous
-      // operation — worse than saying nothing, because it is still true and still wrong.
-      Math.max(v['s3.reluHint'] ?? 0, relu) * clamp01(1 - focus * 3) * fade * 0.95,
-      { kind: 'tag' },
-    );
+    // ReLU, counted.
+    //
+    // This used to be one tag reading "anything below zero becomes zero", held across the
+    // whole beat. The sentence is a statement about numbers, and nothing on screen was a
+    // number: what a reader actually saw was some colour leaving a plate and a rule they
+    // had no way to connect it to, or to judge the size of.
+    //
+    // So it is two readings of the same quantity instead, handing over across the cut in
+    // the slot the rule used to occupy. Before: how many of these cells are negative,
+    // named while they are still lit and boosted, which is what binds the colour to the
+    // word. After: what happened to them, and what happened to everything else. Both
+    // counts come from `conv1Pre`, so they are this drawing's numbers, not an illustration.
+    //
+    // Each line has to stand on its own. The first one is gone by the time the second
+    // arrives, and a viewer who scrubs into the second half sees only that line, so a
+    // pronoun in it refers to nothing: "all 3,266 of them are now 0" was read, fairly, as
+    // 3,266 of what. Both lines therefore name what they are counting.
+    //
+    // The second one also carries the untouched half. That is the actual lesson of the
+    // operation — it is one-sided — and stating both numbers makes the asymmetry a fact
+    // the reader can check against the plates rather than a claim in the side panel.
+    //
+    // They hand over rather than cross-fade: two sentences at half opacity printed over
+    // each other are unreadable. There is about a quarter second of nothing between them.
+    //
+    // Both are gone before the pooling close-up. The station stays on screen into stage 4,
+    // and a caption about ReLU sitting under a 2x2 contest is describing the previous
+    // operation: worse than saying nothing, because it is still true and still wrong.
+    const cut = this.reluCut;
+    const reluAlpha = clamp01(1 - focus * 3) * fade * 0.95;
+    const captionY = conv1CaptionY(this.aspect);
+    if (cut.total > 0) {
+      const count = cut.negative.toLocaleString('en-US');
+      const kept = (cut.total - cut.negative).toLocaleString('en-US');
+      this.label(
+        's3.reluBefore',
+        `${count} of these ${cut.total.toLocaleString('en-US')} numbers are below zero`,
+        [0, captionY, z],
+        (v['s3.reluHint'] ?? 0) * clamp01(1 - relu * 2.85) * reluAlpha,
+        { kind: 'value', floor: true },
+      );
+      this.label(
+        's3.reluAfter',
+        `${count} negatives set to 0, the other ${kept} untouched`,
+        [0, captionY, z],
+        clamp01((relu - 0.6) / 0.4) * reluAlpha,
+        { kind: 'value', floor: true },
+      );
+    }
 
     const heroCenter: Vec3 = [0, 0, z];
 
@@ -910,12 +984,19 @@ export class Scene {
       }
     }
 
+    // Clear of the transport, which is the lowest thing on the page.
+    //
+    // This caption holds for four seconds while the camera is pushed in to 0.78 zoom, and
+    // at that magnification a world unit is about 119 CSS pixels rather than 93. The old
+    // -2.9 was set at the wider framing and put the label three pixels *into* the
+    // transport for its entire hold. The close-up plate ends at -2.2, so there is room to
+    // take it up without crowding the thing it annotates.
     this.label(
       's4.pooling',
       'each 2 by 2 block keeps only its brightest cell',
-      [0, -2.9, z],
+      [0, -2.72, z],
       clamp01((focus - 0.45) / 0.55) * fade * 0.95,
-      { kind: 'tag' },
+      { kind: 'tag', floor: true },
     );
     this.label(
       's4.halved',

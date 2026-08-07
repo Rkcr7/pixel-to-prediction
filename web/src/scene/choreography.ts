@@ -198,7 +198,15 @@ export function buildScore(run: Run): Score {
   b.at(18.3).add('s3.reluHint', 0.6, 0, 1, smooth).cue('reveal');
   b.at(19.3).add('s3.relu', 0.85, 0, 1, emphasized).cue('cut');
   b.at(19.3).add('s3.reluHint', 0.7, 1, 0, smooth);
-  note(b, 'n.relu', 19.9, NOTES['n.relu']);
+  // Early enough to catch the previous note on its way down.
+  //
+  // A note has to clear 0.45 to hold the panel, and the sweep note drops below that at
+  // about 19.7. Starting this one at 19.9 left a gap in which neither qualified, so the
+  // panel fell back to the stage caption and the reader saw the sentence they had already
+  // finished two beats ago reappear for four tenths of a second, in the middle of the
+  // operation this stage is about. Nowhere else in the score does a caption come back
+  // after being superseded.
+  note(b, 'n.relu', 19.45, NOTES['n.relu']);
   b.at(22.0);
   closeStage();
 
