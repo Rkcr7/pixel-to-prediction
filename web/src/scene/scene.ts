@@ -33,8 +33,14 @@ import {
   hiddenSlot,
   kernelSlot,
   mixVec,
+  PANEL_GRID,
+  PANEL_LABEL_Y,
+  PANEL_X,
+  panelSlot,
   POOL2_BLOCK_X,
   pool2Slot,
+  SUM_MAX_WIDTH,
+  SUM_Y,
   stationFrames,
   Z,
   type GridSpec,
@@ -101,6 +107,16 @@ export class Scene {
   /** Labels anchored to scene points, rebuilt every frame and drawn by the DOM. */
   readonly labels: Label[] = [];
 
+  /** The hidden unit worked through in full during stage 5. */
+  private featured = {
+    unit: 0,
+    bias: 0,
+    pre: 0,
+    weightScale: 1,
+    agreeScale: 1,
+    fired: 0,
+  };
+
   /** Layout resolved for the current viewport shape, refreshed once per frame. */
   private aspect = 1.78;
   private portrait = false;
@@ -163,6 +179,20 @@ export class Scene {
     r.ensureStack('pool2', POOL2, POOL2, C2);
     r.ensureStack('protos', IMG, IMG, CLASSES);
     r.ensureStack('explain', IMG, IMG, 2);
+
+    // One hidden unit's weights, and its agreement with the drawing, both in the same
+    // 16 x 7x7 shape as the features. The convention this whole piece follows is that
+    // signed quantities live on the cyan/coral axis and magnitudes live on the magma
+    // ramp; tinting positives cyan puts these two on the signed side, which is what
+    // stops a weight template being mistaken for an activation sitting next to it.
+    r.ensureStack('unitW', POOL2, POOL2, C2);
+    r.ensureStack('unitA', POOL2, POOL2, C2);
+    for (const name of ['unitW', 'unitA']) {
+      r.setStackTint(name, hexToRgb(COLORS.positive), 1);
+      // Linear, not the steep activation curve: a weight matrix has no bias-level
+      // background to suppress, so crushing its small values would hide the template.
+      r.setStackNegGamma(name, 1.0);
+    }
   }
 
   private uploadPrototypes() {
@@ -239,8 +269,41 @@ export class Scene {
     r.setStackNegScale('conv2', 1);
     r.setStackNegScale('input', 1);
 
+    this.featureHiddenUnit(run);
     this.buildFlowA(run);
     this.buildFlowB(run);
+  }
+
+  /**
+   * Pick one hidden unit to work through in full, and upload its template.
+   *
+   * The strongest-firing unit is used deliberately: a worked example that ends in the
+   * unit firing is more satisfying than one that ends in nothing, and its template is
+   * the one most clearly matched by this particular drawing.
+   */
+  private featureHiddenUnit(run: Run) {
+    let unit = 0;
+    for (let i = 1; i < HIDDEN; i++) if (run.fc1[i] > run.fc1[unit]) unit = i;
+
+    const weights = this.engine.hiddenWeights(unit);
+    const agreement = this.engine.hiddenAgreement(unit);
+    const r = this.renderer;
+    r.uploadStack('unitW', weights);
+    r.uploadStack('unitA', agreement);
+    r.setStackNegScale('unitW', 1 / maxNegativeMagnitude(weights));
+    r.setStackNegScale('unitA', 1 / maxNegativeMagnitude(agreement));
+
+    let fired = 0;
+    for (let i = 0; i < HIDDEN; i++) if (run.fc1[i] > 0) fired++;
+
+    this.featured = {
+      unit,
+      bias: this.engine.hiddenBias(unit),
+      pre: run.fc1Pre[unit],
+      weightScale: 1 / maxPositive(weights),
+      agreeScale: 1 / maxPositive(agreement),
+      fired,
+    };
   }
 
   /**
@@ -388,6 +451,7 @@ export class Scene {
       this.post.defocus = 0;
       this.post.fade = 1;
     }
+
 
     r.setParticleState('flowA', run ? (v['s5.flowA'] ?? 0) : 0, 1);
     r.setParticleState('flowB', run ? (v['s5.flowB'] ?? 0) : 0, 1);
@@ -576,7 +640,9 @@ export class Scene {
     }
 
     const kernelsIn = (v['s3.kernel0'] ?? 0) * fade;
-    this.label('s3.kernels', 'the 8 filters it learned', [0, 4.18, z], kernelsIn * 0.9, {
+    // Clear of the kernel row rather than sitting on top of it. The row's top edge is
+    // at kernelSlot.y + half the tile, so the label has to start above that.
+    this.label('s3.kernels', 'the 8 filters it learned', [0, 4.95, z], kernelsIn * 0.9, {
       kind: 'tag',
     });
     // Name the hero filter so the sweep is clearly one specific filter, not "the network".
@@ -609,7 +675,7 @@ export class Scene {
       const target = isHero ? mixVec(grid, heroCenter, focus) : grid;
       const pos = mixVec(heroCenter, target, Math.max(spread, focus));
       const size =
-        lerp(4.5, this.conv1.plate, spread) * (isHero ? lerp(1, 4.7 / this.conv1.plate, focus) : 1);
+        lerp(3.9, this.conv1.plate, spread) * (isHero ? lerp(1, 4.4 / this.conv1.plate, focus) : 1);
       const sweep = isHero ? (v['s3.sweep'] ?? 1) : spread > 0 ? 1 : 0;
       const recede = isHero ? 1 : lerp(1, 0.04, focus);
 
@@ -617,7 +683,7 @@ export class Scene {
       // the same physical size makes the cell coarsening the only thing that changed,
       // which is exactly what pooling did.
       r.plate('conv1', i, pos, [size, size], {
-        opacity: opacity * (1 - contract) * recede,
+        opacity: opacity * (1 - Math.pow(contract, 1.4)) * recede,
         valueScale: this.scales.conv1,
         cellBias: 0.85,
         grid: isHero ? focus * 0.55 : 0,
@@ -693,7 +759,7 @@ export class Scene {
       });
 
       r.plate('conv2', i, pos, [size, size], {
-        opacity: opacity * dim * (1 - pool),
+        opacity: opacity * dim * (1 - Math.pow(pool, 1.4)),
         valueScale: this.scales.conv2,
         cellBias: 0.9,
       }, { signedMix: 0, highlight });
@@ -707,14 +773,10 @@ export class Scene {
       }
     }
 
+    // Short enough to read at a glance. The claim behind it belongs in a note, because
+    // uppercase tracked text past about five words is measurably slower to read.
     const arrived = (v[`s4.plate${run.conv2Order[0]}`] ?? 0) * fade;
-    this.label(
-      's4.combined',
-      '16 new features, each one mixing all 8 edges',
-      [0, 4.55, z],
-      arrived * 0.92,
-      { kind: 'tag' },
-    );
+    this.label('s4.combined', '16 new features', [0, 4.55, z], arrived * 0.92, { kind: 'tag' });
     // Name the winner rather than leaving the ranking implicit.
     const top = run.conv2Order[0];
     this.label(
@@ -734,16 +796,56 @@ export class Scene {
     const gather = v['s6.gather'] ?? 0;
     const decisionFade = v['s6.fade'] ?? 1;
 
+    // -- the dense layer, drawn as a dot product ----------------------------
+    //
+    // A hidden unit is a weighted sum of all 784 features. Its weights reshape onto the
+    // same grid as those features, so the three terms of the product can be laid side by
+    // side: what the unit wants to see, what the drawing has, and where they agree.
+    // Without this the 32 lit and unlit dots later on are unexplained decoration.
+    const panels = (v['s5.panels'] ?? 0) * (1 - (v['s5.lattice'] ?? 0));
+    const agreeIn = v['s5.agree'] ?? 0;
+    const f = this.featured;
+
     if (block > 0.002 && gather < 0.999) {
       for (let i = 0; i < C2; i++) {
-        r.plate('pool2', i, pool2Slot(i, z), [POOL2_GRID.plate, POOL2_GRID.plate], {
+        const home = pool2Slot(i, z);
+        const middle = panelSlot(1, i, z);
+        const pos = mixVec(home, middle, panels);
+        const size = lerp(POOL2_GRID.plate, PANEL_GRID.plate, panels);
+        r.plate('pool2', i, pos, [size, size], {
           opacity: block * (1 - gather) * decisionFade,
           valueScale: this.scales.pool2,
           cellBias: 1,
-          grid: 0.35,
+          // Two thirds of these cells are exactly zero, so beside two densely-populated
+          // signed panels the middle one reads as empty. Strengthening the grid keeps
+          // the empty cells visible as cells, which is honest: the zeros are the point.
+          grid: lerp(0.35, 0.72, panels),
         });
+
+        if (panels > 0.004) {
+          // What this unit is looking for. Harley's framing: a unit's activation is how
+          // closely the layer below matches its learned ideal input, and that ideal is
+          // held in the strengths of its own edges.
+          r.plate('unitW', i, panelSlot(0, i, z), [PANEL_GRID.plate, PANEL_GRID.plate], {
+            opacity: panels * decisionFade,
+            valueScale: f.weightScale,
+            cellBias: 1,
+            grid: 0.3,
+          }, { signedMix: 1 });
+
+          if (agreeIn > 0.004) {
+            r.plate('unitA', i, panelSlot(2, i, z), [PANEL_GRID.plate, PANEL_GRID.plate], {
+              opacity: panels * agreeIn * decisionFade,
+              valueScale: f.agreeScale,
+              cellBias: 1,
+              grid: 0.3,
+            }, { signedMix: 1 });
+          }
+        }
       }
     }
+
+    if (panels > 0.01) this.drawDotProduct(v, z, panels * decisionFade);
 
     // The 32 hidden units.
     //
@@ -859,12 +961,26 @@ export class Scene {
 
     // Name the three groups. Without this the middle of the network is just dots.
     const showGroups = (1 - gather) * decisionFade;
-    this.label('s5.features', '784 surviving features', [POOL2_BLOCK_X, 2.35, z], block * showGroups * 0.9, {
-      kind: 'tag',
-    });
+    // Say where the number comes from. "784 features" is a noun; the arithmetic is the
+    // only thing that makes it mean anything.
+    this.label(
+      's5.features',
+      '16 maps, 7 by 7 each: 784 numbers',
+      [POOL2_BLOCK_X, 2.35, z],
+      block * showGroups * (1 - (v['s5.panels'] ?? 0)) * 0.9,
+      { kind: 'tag' },
+    );
     this.label('s5.units', '32 hidden units', [HIDDEN_X, 2.72, z], (v['s5.unit0'] ?? 0) * showGroups * 0.9, {
       kind: 'tag',
     });
+    // The lit/unlit pattern is meaningless until this is said out loud.
+    this.label(
+      's5.fired',
+      `${this.featured.fired} of 32 fired. The rest summed below zero, and ReLU silenced them.`,
+      [HIDDEN_X, -2.95, z],
+      (v['s5.unit31'] ?? 0) * showGroups * (v['s5.lattice'] ?? 0) * 0.95,
+      { kind: 'tag' },
+    );
     this.label('s5.cands', '10 candidates', [CANDIDATE_X, 3.62, z], (v['s5.cand0'] ?? 0) * showGroups * 0.9, {
       kind: 'tag',
     });
@@ -875,6 +991,102 @@ export class Scene {
       (v['s5.flowB'] ?? 0) * showGroups * 0.9,
       { kind: 'tag' },
     );
+  }
+
+  /**
+   * The three panels collapsing into one number.
+   *
+   * Everything drawn here is the arithmetic the unit actually performed: the agreement
+   * panel summed, the bias added, and the result compared against zero. A Rust test
+   * pins that the panel really does sum to the unit's reported pre-activation, so the
+   * picture cannot drift away from the number.
+   */
+  private drawDotProduct(v: Sampled, z: number, alpha: number) {
+    const r = this.renderer;
+    const f = this.featured;
+    const agreeIn = v['s5.agree'] ?? 0;
+    const sumT = v['s5.sum'] ?? 0;
+    const gate = v['s5.gate'] ?? 0;
+
+    this.label(
+      's5.panelW',
+      `what unit ${f.unit + 1} is looking for`,
+      [PANEL_X[0], PANEL_LABEL_Y, z],
+      alpha * 0.95,
+      { kind: 'tag' },
+    );
+    this.label('s5.panelF', 'what your digit has', [PANEL_X[1], PANEL_LABEL_Y, z], alpha * 0.95, {
+      kind: 'tag',
+    });
+    this.label(
+      's5.panelA',
+      'where the two agree',
+      [PANEL_X[2], PANEL_LABEL_Y, z],
+      alpha * agreeIn * 0.95,
+      { kind: 'tag' },
+    );
+
+    if (sumT <= 0.004) return;
+
+    const agreementSum = f.pre - f.bias;
+    const scale = SUM_MAX_WIDTH / Math.max(Math.abs(agreementSum), Math.abs(f.pre), 1e-3);
+
+    // Zero line: the thing the total is about to be compared against.
+    r.sprite([0, SUM_Y, z - 0.02], [0.016, 0.62], CHROME, alpha * 0.55, {
+      mode: SPRITE_BAR,
+      radius: 0.008,
+      softness: 0.008,
+      intensity: 0.9,
+    });
+
+    // All 784 agreements, added up.
+    const sumWidth = agreementSum * scale * sumT;
+    r.sprite(
+      [sumWidth / 2, SUM_Y, z],
+      [Math.abs(sumWidth) + 0.02, 0.17],
+      agreementSum >= 0 ? POS : NEG,
+      alpha,
+      { mode: SPRITE_BAR, radius: 0.05, softness: 0.02, intensity: 1.7 },
+    );
+    this.label(
+      's5.sumLabel',
+      'add all 784 of them up',
+      [0, SUM_Y + 0.62, z],
+      alpha * sumT * (1 - gate) * 0.95,
+      { kind: 'tag' },
+    );
+
+    // Then the unit's own bias, appended to the running total.
+    const biasWidth = f.bias * scale * gate;
+    if (Math.abs(biasWidth) > 0.004) {
+      r.sprite(
+        [sumWidth + biasWidth / 2, SUM_Y, z + 0.01],
+        [Math.abs(biasWidth) + 0.02, 0.17],
+        ACCENT,
+        alpha * 0.95,
+        { mode: SPRITE_BAR, radius: 0.05, softness: 0.02, intensity: 1.9 },
+      );
+    }
+
+    if (gate > 0.02) {
+      const fires = f.pre > 0;
+      this.label(
+        's5.gateLabel',
+        fires
+          ? `${f.pre.toFixed(1)} is above zero, so this unit fires`
+          : `${f.pre.toFixed(1)} is below zero, so ReLU silences it`,
+        [0, SUM_Y + 0.62, z],
+        alpha * gate * 0.95,
+        { kind: 'tag' },
+      );
+      this.label(
+        's5.biasLabel',
+        'plus its own bias',
+        [sumWidth + biasWidth / 2, SUM_Y - 0.5, z],
+        alpha * gate * 0.85,
+        { kind: 'value' },
+      );
+    }
   }
 
   // Stage 6 -------------------------------------------------------------------

@@ -63,6 +63,15 @@ uniform float uNegScale;
  *  rather than merging into one glowing shape. */
 uniform vec3 uTint;
 uniform float uTintMix;
+/**
+ * Shaping exponent for the negative half.
+ *
+ * A conv layer's background sits at its bias, so its mild negatives need crushing to
+ * stop every plate reading as one flat card. A weight matrix has no such background:
+ * its small values are real and evenly distributed, so crushing them would hide most of
+ * the template. Same rendering path, different distribution, so the curve is per stack.
+ */
+uniform float uNegGamma;
 
 out vec4 outColor;
 
@@ -117,7 +126,7 @@ void main() {
     // Shaping the low end down keeps that background as a quiet wash while genuinely
     // strong negative responses still read.
     float m = clamp(-n * uNegScale, 0.0, 1.0);
-    float shaped = pow(m, 1.9);
+    float shaped = pow(m, uNegGamma);
     col = srgbToLinear(uNegative) * shaped * 1.5 * signedMix * cut;
   }
 

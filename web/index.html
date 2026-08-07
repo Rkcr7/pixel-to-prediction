@@ -141,6 +141,10 @@
         <button class="tbtn tbtn--text" id="skipBtn" type="button" title="Skip to the answer">Skip</button>
       </div>
 
+      <!-- Always visible, even when the transport has hidden itself: you should never
+           lose track of where you are in the sequence. -->
+      <div class="rail" id="rail" aria-hidden="true"><div class="rail__fill" id="railFill"></div></div>
+
       <div class="toast" id="toast" role="status"></div>
     </main>
 

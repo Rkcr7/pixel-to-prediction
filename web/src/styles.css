@@ -463,11 +463,15 @@ body:not([data-mode='loading']) .boot {
   line-height: 1.12;
 }
 
+/* Swaps between the stage caption and a beat-specific claim, so the transition needs to
+   be soft enough that the change reads as the same voice continuing. */
 .story__caption {
   margin: 0;
   color: var(--text-dim);
-  font-size: clamp(13px, 1.5vw, 15px);
+  font-size: clamp(13px, 1.55vw, 15.5px);
   line-height: 1.62;
+  min-height: 5.2em;
+  transition: color 0.3s var(--ease-expo);
 }
 
 /* ----------------------------------------------------------------- result */
@@ -597,6 +601,10 @@ body:not([data-mode='loading']) .boot {
 
 /* -------------------------------------------------------------- transport */
 
+/* The transport gets out of the way.
+   It is chrome over a picture that is the entire point, so it stays only while the
+   viewer is actually reaching for it, and a two-pixel rail carries the position the rest
+   of the time. */
 .transport {
   display: flex;
   align-items: center;
@@ -604,7 +612,37 @@ body:not([data-mode='loading']) .boot {
   padding: 14px clamp(16px, 4vw, 34px) calc(18px + var(--safe-b));
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.45s var(--ease-expo);
+  transform: translateY(12px);
+  transition: opacity 0.4s var(--ease-expo), transform 0.5s var(--ease-expo);
+}
+
+.rail {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: rgba(138, 147, 166, 0.16);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s var(--ease-expo);
+  z-index: 3;
+}
+
+.rail__fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(248, 179, 60, 0.5), var(--accent));
+}
+
+body[data-mode='reveal'] .rail,
+body[data-mode='result'] .rail {
+  opacity: 1;
+}
+
+/* The rail is redundant while the full transport is up. */
+body[data-chrome='active'] .rail {
+  opacity: 0;
 }
 
 .tbtn {
@@ -714,9 +752,10 @@ body[data-mode='result'] .story {
   opacity: 0;
 }
 
-body[data-mode='reveal'] .transport,
-body[data-mode='result'] .transport {
+body[data-chrome='active'][data-mode='reveal'] .transport,
+body[data-chrome='active'][data-mode='result'] .transport {
   opacity: 1;
+  transform: translateY(0);
   pointer-events: auto;
 }
 

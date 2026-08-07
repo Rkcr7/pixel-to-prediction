@@ -108,6 +108,8 @@ export class Renderer {
   private negScales = new Map<string, number>();
   /** Per-stack monochrome tint: [r, g, b, mix]. */
   private tints = new Map<string, [number, number, number, number]>();
+  /** Per-stack shaping exponent for the negative half. */
+  private negGammas = new Map<string, number>();
   private plateBatches = new Map<string, PlateBatch>();
   private particleGroups = new Map<string, ParticleGroup>();
 
@@ -338,6 +340,15 @@ export class Renderer {
   /** Render a whole stack as a monochrome tint instead of the magnitude ramp. */
   setStackTint(name: string, color: readonly [number, number, number], mix: number) {
     this.tints.set(name, [color[0], color[1], color[2], mix]);
+  }
+
+  /**
+   * Shaping exponent for a stack's negative half. Activations want a steep curve so the
+   * bias-level background stays quiet; weight matrices want a linear one because their
+   * small values are real signal, not background.
+   */
+  setStackNegGamma(name: string, gamma: number) {
+    this.negGammas.set(name, gamma);
   }
 
   /** `data` is [kernelIndex][k*k]; up to 64 kernels. */
@@ -635,6 +646,7 @@ export class Renderer {
         const tint = this.tints.get(name);
         p.v3('uTint', tint ? tint[0] : 1, tint ? tint[1] : 1, tint ? tint[2] : 1);
         p.f('uTintMix', tint ? tint[3] : 0);
+        p.f('uNegGamma', this.negGammas.get(name) ?? 1.9);
         gl.bindBuffer(gl.ARRAY_BUFFER, this.plateBuffer);
         const needed = batch.count * PLATE_STRIDE;
         if (needed > this.plateCapacity) {

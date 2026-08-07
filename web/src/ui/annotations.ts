@@ -16,8 +16,19 @@ export interface Label {
   x: number;
   y: number;
   opacity: number;
-  /** 'tag' is a small uppercase caption, 'value' is a tabular number. */
-  kind?: 'tag' | 'value';
+  /**
+   * Three registers, and the distinction is load bearing.
+   *
+   * 'tag' names an object: uppercase, tracked, at most five words, anchored to a point
+   * in the scene. 'value' is a tabular number. 'note' makes a claim: sentence case, one
+   * sentence, and pinned to a fixed lower-third slot rather than tracking the camera,
+   * because a reader parsing an argument should not have to chase it across the frame.
+   *
+   * The split exists because uppercase tracked text is measurably slower to read past
+   * about five words, so the tag register cannot carry an explanation however long you
+   * leave it on screen.
+   */
+  kind?: 'tag' | 'value' | 'note';
   /** Nudge in CSS pixels, for keeping a label clear of what it points at. */
   dx?: number;
   dy?: number;

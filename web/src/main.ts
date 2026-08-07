@@ -7,7 +7,7 @@ import './styles.css';
 import { Audio, type CueName } from './audio/audio';
 import { Engine, type Run } from './core/engine';
 import { Player, type Sampled } from './core/timeline';
-import { buildScore, stageAt, type Score } from './scene/choreography';
+import { buildScore, NOTES, stageAt, type Score } from './scene/choreography';
 import { CANVAS_RES } from './scene/constants';
 import { Scene } from './scene/scene';
 import { DrawSurface } from './ui/draw';
@@ -161,6 +161,13 @@ class App {
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('orientationchange', () => this.resize());
 
+    // Wake the transport on any deliberate input, then let it go again.
+    for (const type of ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const) {
+      window.addEventListener(type, () => this.wakeChrome(), { passive: true });
+    }
+    // Keep it up while the pointer is actually over it, so it cannot vanish mid-reach.
+    $('transport').addEventListener('pointerenter', () => this.wakeChrome(9_000));
+
     window.addEventListener('pointermove', (e) => {
       // Gentle parallax. Decorative only, and never applied while recording.
       this.scene.parallax = [
@@ -231,6 +238,8 @@ class App {
   private setMode(mode: Mode) {
     this.mode = mode;
     document.body.dataset.mode = mode;
+    // Entering a mode is deliberate input, so the controls should be there for it.
+    this.wakeChrome(mode === 'reveal' ? 2600 : 9_000);
   }
 
   private revealing = false;
@@ -402,6 +411,23 @@ class App {
     }, total);
   }
 
+  private chromeTimer = 0;
+
+  /** Show the transport, and schedule it to withdraw again. */
+  private wakeChrome(holdMs = 2600) {
+    if (document.body.dataset.chrome !== 'active') document.body.dataset.chrome = 'active';
+    clearTimeout(this.chromeTimer);
+    this.chromeTimer = window.setTimeout(() => {
+      // Never hide it while the answer panel is up: at that point the buttons are the
+      // whole point of the screen.
+      if (this.mode === 'result' || this.scrubbing) {
+        this.wakeChrome();
+        return;
+      }
+      document.body.dataset.chrome = 'idle';
+    }, holdMs);
+  }
+
   private toastTimer = 0;
   private toast(message: string) {
     const el = $('toast');
@@ -472,6 +498,7 @@ class App {
   };
 
   private lastStageKey = '';
+  private lastCaption = '';
   private updateChrome(t: number) {
     if (!this.score) return;
     const stage = stageAt(this.score.stages, t);
@@ -479,11 +506,33 @@ class App {
       this.lastStageKey = stage.key;
       $('storyStep').textContent = `${stage.index + 1} / ${this.score.stages.length}`;
       $('storyTitle').textContent = stage.title;
-      $('storyCaption').textContent = stage.caption;
+    }
+
+    // One block of text, in the place the reader already looks.
+    //
+    // Beat-specific claims temporarily replace the stage caption rather than appearing
+    // in a second band of their own. Two simultaneous text blocks in different registers
+    // split attention and read as clutter, however good each one is on its own.
+    // `>=` so that when two claims overlap at full opacity the later one wins. NOTES is
+    // declared in running order, and with a strict `>` the earlier claim would stick and
+    // the newer beat would never get its line.
+    let caption = stage.caption;
+    let strongest = 0.45;
+    for (const key in NOTES) {
+      const weight = this.sampled[key] ?? 0;
+      if (weight >= strongest) {
+        strongest = weight;
+        caption = NOTES[key];
+      }
+    }
+    if (caption !== this.lastCaption) {
+      this.lastCaption = caption;
+      $('storyCaption').textContent = caption;
     }
 
     const pct = this.player.progress * 100;
     $('scrubFill').style.width = `${pct}%`;
+    $('railFill').style.width = `${pct}%`;
     $('scrub').setAttribute('aria-valuenow', String(Math.round(pct)));
 
     // The answer panel belongs with the final stage, not with the end of the timeline.

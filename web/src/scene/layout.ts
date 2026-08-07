@@ -163,6 +163,32 @@ export function hiddenSlot(i: number, z: number): Vec3 {
 
 export const POOL2_BLOCK_X = -4.3;
 
+// -- The dense layer, drawn as a dot product ---------------------------------
+
+/**
+ * Three panels, all in the same 16 x 7x7 layout: what one hidden unit is looking for,
+ * what the drawing actually has, and where the two agree.
+ *
+ * A hidden unit's 784 weights come back in the same channel-major order as the pooled
+ * features, so they reshape onto exactly this grid. That is what lets the dot product be
+ * drawn rather than asserted, and it is the only reason a dense layer can be made
+ * legible at all.
+ */
+export const PANEL_GRID: GridSpec = { cols: 4, rows: 4, cell: 0.78, plate: 0.72 };
+export const PANEL_X = [-3.6, 0, 3.6] as const;
+/** The panels sit above centre so the running total below them has room. */
+export const PANEL_Y = 0.5;
+// Clear of the panel tops, which reach PANEL_Y + 1.56 + half a plate.
+export const PANEL_LABEL_Y = PANEL_Y + 2.32;
+/** Where the agreement collapses to a single running total. */
+export const SUM_Y = -2.1;
+export const SUM_MAX_WIDTH = 3.4;
+
+export function panelSlot(panel: number, i: number, z: number): Vec3 {
+  const c = gridCell(PANEL_GRID, i, z);
+  return [c[0] + PANEL_X[panel], c[1] + PANEL_Y, c[2]];
+}
+
 export function pool2Slot(i: number, z: number): Vec3 {
   const c = gridCell(POOL2_GRID, i, z);
   return [c[0] + POOL2_BLOCK_X, c[1], c[2]];
