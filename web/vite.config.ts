@@ -57,6 +57,9 @@ function frameDump(): Plugin {
 }
 
 export default defineConfig({
+  // Relative, so the build works from any path: a file:// open, a subdirectory, a custom
+  // domain, or the project page at /pixel-to-prediction/. An absolute base would pin it to
+  // one of those and break the rest, and every asset here is already referenced relatively.
   base: './',
   plugins: [frameDump()],
   build: {

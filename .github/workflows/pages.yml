@@ -1,0 +1,73 @@
+name: Pages
+
+# Deploy the live demo. The repository is the source, but the point of this project is
+# that someone can open a link and draw on it, so the deploy is part of shipping it.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One deploy at a time, and never cancel one in flight: a half-published Pages site is
+# worse than a slightly stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      # The wasm is generated, not committed, so the deploy builds it from the same crate
+      # the tests run against. There is no second copy of the network to drift.
+      - name: Build WASM
+        working-directory: crates/nnviz
+        run: wasm-pack build --target web --out-dir ../../web/src/wasm --release --no-typescript
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build
+        working-directory: web
+        run: npx vite build
+
+      # Pages serves what it is given without a build step, and Jekyll would otherwise
+      # strip the underscore-prefixed asset directories Vite emits.
+      - name: Disable Jekyll
+        run: touch web/dist/.nojekyll
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

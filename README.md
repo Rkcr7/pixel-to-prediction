@@ -6,11 +6,13 @@
 
 **Draw a digit. Watch a real convolutional network take it apart, one layer at a time.**
 
+### [Try it →](https://rkcr7.github.io/pixel-to-prediction/)
+
 ![](.github/assets/hero.webp)
 
-[![tests](https://img.shields.io/badge/rust%20tests-45%20passing-4FD8E8?style=flat-square&labelColor=05060A)](#the-test-that-actually-matters)
+[![tests](https://img.shields.io/badge/rust%20tests-47%20passing-4FD8E8?style=flat-square&labelColor=05060A)](#the-test-that-actually-matters)
 [![accuracy](https://img.shields.io/badge/MNIST-99.46%25-F8B33C?style=flat-square&labelColor=05060A)](#the-model)
-[![size](https://img.shields.io/badge/payload-183%20KB%20gzipped-9AA6BC?style=flat-square&labelColor=05060A)](#how-it-is-built)
+[![size](https://img.shields.io/badge/payload-187%20KB%20gzipped-9AA6BC?style=flat-square&labelColor=05060A)](#how-it-is-built)
 [![licence](https://img.shields.io/badge/licence-MIT-9AA6BC?style=flat-square&labelColor=05060A)](LICENSE)
 
 </div>
@@ -163,7 +165,7 @@ deliberate:
 ## Running it
 
 ```bash
-git clone <this repo> && cd viusalizer
+git clone https://github.com/Rkcr7/pixel-to-prediction && cd pixel-to-prediction
 bash scripts/build.sh          # rust tests, wasm, typecheck, production bundle
 cd web && npx vite preview     # or: npx vite  for the dev server
 ```
@@ -190,7 +192,7 @@ Node 20+.
 ```
 crates/nnviz/          Rust: tensors, conv/pool/dense forward AND backward,
                        MNIST preprocessing, saliency, the native trainer,
-                       and the wasm bindings. 45 unit tests.
+                       and the wasm bindings. 47 unit tests.
 web/src/core/          Deterministic timeline, easing, palette, wasm loader
 web/src/gl/            WebGL2 renderer, written directly (no Three.js)
 web/src/scene/         Layout, choreography, per-frame drawing
@@ -198,7 +200,7 @@ web/src/ui/            Drawing surface, annotations, copy generation
 web/src/audio/         Procedural sound, synthesised at runtime
 ```
 
-**Total transfer is about 183 KB gzipped**, including the model weights and the WASM.
+**Total transfer is about 187 KB gzipped**, including the model weights and the WASM.
 
 A few decisions that shaped the rest:
 
@@ -227,7 +229,7 @@ caption at all.
 cargo test --lib
 ```
 
-45 tests, and two of them carry the project:
+47 tests, and two of them carry the project:
 `input_gradient_matches_numeric_gradient` and
 `parameter_gradients_match_numeric_gradient`. They compare the analytic backward pass
 against a central-difference approximation through the whole network.
