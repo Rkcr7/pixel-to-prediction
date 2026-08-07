@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Pixel to Prediction">
+  <title>Pixel to Prediction</title>
+  <!--
+    The mark is the product name read literally, and it is two things at once.
+
+    As a picture of pixels: four columns of small squares, the unit the network is handed.
+    As a picture of a prediction: a bar chart with one decisive winner.
+
+    The losers stay as separate squares because they are still unresolved. The winner is a
+    single continuous bar rather than four stacked squares, because that is exactly what
+    the network does to a drawing: many small uncertain things in, one whole confident
+    thing out. No text, no filters, no gradients, so it survives a favicon, a GitHub
+    avatar, and a sanitiser that strips everything interesting.
+  -->
+  <g fill="#3EC9DA">
+    <rect x="1" y="49" width="14" height="14" rx="3.5" />
+    <rect x="17" y="49" width="14" height="14" rx="3.5" />
+    <rect x="17" y="33" width="14" height="14" rx="3.5" />
+    <rect x="49" y="49" width="14" height="14" rx="3.5" />
+  </g>
+  <rect x="33" y="1" width="14" height="62" rx="4" fill="#F8B33C" />
+</svg>

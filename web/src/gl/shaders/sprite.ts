@@ -29,13 +29,31 @@ flat out vec4 vColor;
 flat out vec4 vShape;
 
 void main() {
-  // Pad the quad so the soft edge is not clipped by the geometry.
-  vec2 pad = vec2(1.0 + 0.35);
-  vLocal = aCorner * aSize * pad;
-  vHalf = aSize * 0.5;
+  // Pad the quad by the distance the halo actually travels, not by a fraction of the
+  // sprite.
+  //
+  // The fragment shader's halo decays over min(halfW, halfH) * 0.55, which is an
+  // absolute world distance and is the same on both axes. Scaling the quad by a constant
+  // 1.35 gave each axis a margin proportional to its own half-extent instead, so a long
+  // thin bar got 0.09 units of room across its width for a glow that needs about 0.43:
+  // the falloff was still at half strength where the geometry stopped and was cut dead
+  // there, which is why every bar wore a hard-edged rectangular box. Tall sprites hid it,
+  // because their vertical margin happened to be generous enough.
+  //
+  // Just enough margin for the anti-aliased edge.
+  //
+  // The sprite paints nothing outside its own shape any more, so the quad does not need
+  // to reserve room for a halo. Whatever bleed a bright sprite has comes from the bloom
+  // in the post pass, which is a full-screen effect: it reads the HDR buffer, so it needs
+  // no geometry at all and cannot be clipped into a rectangle by one.
+  vec2 halfSize = aSize * 0.5;
+  vec2 grown = halfSize + vec2(max(aShape.z, 0.0001) * 2.0 + 0.006);
+
+  vLocal = aCorner * 2.0 * grown;
+  vHalf = halfSize;
   vColor = aColor;
   vShape = aShape;
-  gl_Position = uViewProj * vec4(aCenter + vec3(aCorner * aSize * pad, 0.0), 1.0);
+  gl_Position = uViewProj * vec4(aCenter + vec3(aCorner * 2.0 * grown, 0.0), 1.0);
 }
 `;
 
@@ -74,14 +92,17 @@ void main() {
     // Ring: a band centred on the boundary.
     alpha = 1.0 - smoothstep(0.0, softness, abs(d) - softness * 0.5);
   } else {
-    // Filled, with a soft halo outside so it reads as light rather than plastic.
-    // The halo falls off relative to the sprite's own radius, not to an absolute
-    // constant: scaling it by softness alone made small sprites glow uniformly across
-    // their whole quad, so discs came out looking like squares.
-    float radius = max(min(vHalf.x, vHalf.y), 1e-4);
-    float core = 1.0 - smoothstep(-softness, softness, d);
-    float halo = exp(-max(d, 0.0) / (radius * 0.55)) * 0.5;
-    alpha = clamp(core + halo, 0.0, 1.6);
+    // Filled, and nothing outside the shape.
+    //
+    // There used to be an exponential halo painted here. It was a mistake twice over: it
+    // was clipped into a hard-edged rectangle by the sprite's own quad, and once that was
+    // fixed it buried every bar in a blob of its own light. Both problems come from the
+    // same place, which is that a glow is not a property of one object. It is what a
+    // bright thing does to the image around it, so it belongs to the post pass, where the
+    // bloom pyramid already reads the HDR buffer and spreads brightness with no geometry
+    // to be clipped by. A bar brighter than 1.0 still glows; the glow is just no longer
+    // drawn by the bar itself.
+    alpha = 1.0 - smoothstep(-softness, softness, d);
   }
 
   if (alpha < 0.004) discard;

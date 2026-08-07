@@ -204,12 +204,12 @@ body:not([data-mode='loading']) .boot {
   color: var(--text-dim);
 }
 
-.brand__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 12px rgba(248, 179, 60, 0.55);
+.brand__mark {
+  width: 18px;
+  height: 18px;
+  display: block;
+  /* The amber bar carries the same lift it has everywhere else in the piece. */
+  filter: drop-shadow(0 0 10px rgba(248, 179, 60, 0.35));
 }
 
 .topbar__right {

@@ -36,7 +36,16 @@
     />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:image" content="./social/og.png" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2305060A'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23F8B33C'/%3E%3C/svg%3E" />
+    <!--
+      The mark, on the app's own ground so it reads as a tile in a tab strip rather than
+      as four shapes floating on whatever the browser paints behind it.
+    -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2305060A'/%3E%3Cg transform='translate(8 8) scale(0.75)' fill='%233EC9DA'%3E%3Crect x='1' y='49' width='14' height='14' rx='3.5'/%3E%3Crect x='17' y='49' width='14' height='14' rx='3.5'/%3E%3Crect x='17' y='33' width='14' height='14' rx='3.5'/%3E%3Crect x='49' y='49' width='14' height='14' rx='3.5'/%3E%3C/g%3E%3Crect x='32.75' y='8.75' width='10.5' height='46.5' rx='3' fill='%23F8B33C'/%3E%3C/svg%3E"
+    />
+    <link rel="apple-touch-icon" href="./logo.svg" />
+    <link rel="mask-icon" href="./logo.svg" color="#F8B33C" />
     <link rel="stylesheet" href="./src/styles.css" />
   </head>
   <body data-mode="loading">
@@ -58,7 +67,7 @@
     <main id="app" class="app" hidden>
       <header class="topbar">
         <div class="brand">
-          <span class="brand__dot" aria-hidden="true"></span>
+          <img class="brand__mark" src="./logo.svg" alt="" width="18" height="18" />
           <span class="brand__name">Pixel to Prediction</span>
         </div>
         <div class="topbar__right">
