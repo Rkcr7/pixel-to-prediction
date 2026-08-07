@@ -110,6 +110,27 @@ fn onehot(i: usize) -> Vec<f32> {
     v
 }
 
+/// Where changing a pixel would push the answer from `from` towards `to`.
+///
+/// The raw input gradient of `logit(to) - logit(from)`, normalised to [-1, 1] and
+/// deliberately **not** multiplied by the input.
+///
+/// That is the whole difference between this and [`Explanation::counter`]. Attribution
+/// (`grad * input`) answers "which of the ink you drew argued for what", so it is exactly
+/// zero everywhere you did not draw, and it therefore cannot suggest anywhere to put a
+/// stroke that is not there yet. The bare gradient can: positive here means ink added at
+/// that pixel moves the network towards `to`, negative means ink removed from it does.
+///
+/// It is a local, first-order answer. It is honest about one small change, not a recipe,
+/// which is why the UI offers it as a hint to try rather than as an instruction.
+pub fn flip_gradient(net: &Net, a: &Acts, to: usize, from: usize) -> Vol {
+    let mut d = onehot(to);
+    d[from] -= 1.0;
+    let g = net.backward(a, &d, None);
+    let m = g.abs_max().max(1e-8);
+    Vol::from_vec(1, g.h, g.w, g.data.iter().map(|v| v / m).collect())
+}
+
 /// Count enclosed background regions by flooding the background inward from the border.
 /// Anything left unvisited is a hole.
 pub fn count_holes(input: &Vol, thresh: f32) -> u32 {
@@ -490,6 +511,73 @@ mod tests {
         assert!(e.counter.data.iter().all(|v| (-1.0..=1.0).contains(v)));
         assert!(e.top1 != e.top2);
         assert!(e.p1 >= e.p2);
+    }
+
+    #[test]
+    fn flip_gradient_speaks_where_there_is_no_ink() {
+        // The entire reason this exists instead of reusing `counter`. Attribution is
+        // grad * input, so it is identically zero on every blank pixel and can never
+        // point at somewhere to add a stroke. If the bare gradient were silent there
+        // too, the hint would have nothing to say and the feature would be a lie.
+        let net = Net::new_random(21);
+        let mut r = Rng::new(5);
+        let x = Vol::from_vec(
+            1,
+            28,
+            28,
+            (0..784)
+                .map(|i| if i % 37 == 0 { r.f32() } else { 0.0 })
+                .collect(),
+        );
+        let a = net.forward(&x);
+        let e = explain(&net, &a);
+        let g = flip_gradient(&net, &a, e.top2, e.top1);
+
+        assert!(g.data.iter().all(|v| (-1.0..=1.0).contains(v)));
+
+        let blank: Vec<usize> = (0..784).filter(|&i| x.data[i] == 0.0).collect();
+        assert!(blank.len() > 700, "input was not sparse enough to test this");
+        assert!(
+            blank.iter().all(|&i| e.counter.data[i] == 0.0),
+            "attribution must be zero wherever there is no ink",
+        );
+        let speaks = blank.iter().filter(|&&i| g.data[i].abs() > 1e-6).count();
+        assert!(
+            speaks > 100,
+            "the flip gradient was silent on all but {speaks} of {} blank pixels",
+            blank.len(),
+        );
+    }
+
+    #[test]
+    fn stepping_along_the_flip_gradient_closes_the_margin() {
+        // The direction has to be right, not just non-zero. A sign error here would
+        // produce a hint that confidently tells you to do the opposite of what works,
+        // and nothing on screen would look wrong.
+        let net = Net::new_random(9);
+        let mut r = Rng::new(31);
+        let x = Vol::from_vec(1, 28, 28, (0..784).map(|_| r.f32() * 0.6).collect());
+        let a = net.forward(&x);
+        let e = explain(&net, &a);
+        let g = flip_gradient(&net, &a, e.top2, e.top1);
+
+        let before = a.logits[e.top2] - a.logits[e.top1];
+        let stepped = Vol::from_vec(
+            1,
+            28,
+            28,
+            x.data
+                .iter()
+                .zip(&g.data)
+                .map(|(v, gr)| (v + 0.02 * gr).clamp(0.0, 1.0))
+                .collect(),
+        );
+        let after = net.forward(&stepped);
+        let closed = after.logits[e.top2] - after.logits[e.top1];
+        assert!(
+            closed > before,
+            "one step along the gradient moved the margin the wrong way: {before} -> {closed}",
+        );
     }
 
     #[test]

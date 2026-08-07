@@ -42,6 +42,14 @@ export interface Run {
   fc1TopContributions: Float32Array;
   saliency: Float32Array;
   counterfactual: Float32Array;
+  /**
+   * 28x28 in [-1,1]: where a stroke would move the answer to the runner-up.
+   *
+   * A different layer from `counterfactual`, not a rescaling of it. That one is
+   * attribution and is zero wherever you did not draw; this is the bare gradient, so it
+   * has something to say about blank pixels, which is the only reason it can be a hint.
+   */
+  flipHint: Float32Array;
   evidence: Evidence;
   /** Class indices sorted by probability, strongest first. */
   ranked: number[];
@@ -136,6 +144,7 @@ export class Engine {
       fc1TopContributions: w.fc1_top_contributions(10),
       saliency: w.saliency(),
       counterfactual: w.counterfactual(),
+      flipHint: w.flip_hint(),
       evidence: JSON.parse(w.evidence()) as Evidence,
       ranked: rankDesc(probs),
       conv1Order: rankDesc(conv1Energy),

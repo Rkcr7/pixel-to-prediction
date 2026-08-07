@@ -576,6 +576,22 @@ body:not([data-mode='loading']) .boot {
 }
 
 /*
+ * The fool-it line. Cyan, because it is about the layer drawn in cyan on the pad, and
+ * that colour agreement is the only thing telling the reader the two are the same claim.
+ */
+.result__fool {
+  margin: 2px 0 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--positive);
+}
+
+.result__fool--won {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/*
  * The closing thought.
  *
  * It lives here rather than in the timeline because the story panel is replaced by this

@@ -8,7 +8,24 @@
  * tuned to land in that band for a digit drawn at a natural size.
  */
 
-import { CANVAS_RES } from '../scene/constants';
+import { CANVAS_RES, IMG } from '../scene/constants';
+
+/**
+ * Everything needed to map the network's 28x28 field back onto the pad.
+ *
+ * Preprocessing runs crop to the ink, scale into a 20-pixel box, then translate by an
+ * integer offset to centre the mass. All three steps are invertible from what the engine
+ * already reports, which is what lets a hint computed in the network's coordinates be
+ * drawn in the user's.
+ */
+export interface HintMap {
+  /** Ink bounding box in extraction pixels: x, y, w, h. */
+  bbox: readonly [number, number, number, number];
+  boxedW: number;
+  boxedH: number;
+  /** Integer translation applied when placing the box into the 28x28 field. */
+  offset: readonly [number, number];
+}
 
 export interface Point {
   x: number;
@@ -64,6 +81,14 @@ export class DrawSurface {
    * held here would be wiped the moment the user drew on top of it.
    */
   private background: HTMLCanvasElement | null = null;
+  /**
+   * The flip hint, pre-rendered into pad coordinates.
+   *
+   * Its own layer for the same reason the upload is: repaint clears and redraws from
+   * scratch on every pointer sample, so anything not held here would be erased the
+   * instant the user started drawing on it, which is precisely when they need it.
+   */
+  private hint: HTMLCanvasElement | null = null;
 
   /** Backing resolution. Twice the extraction size so the visible stroke is smooth. */
   readonly res = CANVAS_RES * 2;
@@ -150,9 +175,59 @@ export class DrawSurface {
     };
   }
 
+  /**
+   * Show where a stroke would change the network's mind.
+   *
+   * `field` is the 28x28 flip gradient, so it lives in the network's coordinates: the
+   * ink cropped, scaled into a 20-pixel box, and translated to centre its mass. All three
+   * steps are inverted here so the hint lands on the pad where the user would actually
+   * draw, which is the only place it is any use.
+   *
+   * Positives only. A negative says "less ink here", and the pad has a brush and an undo
+   * but no eraser, so showing both halves would offer an instruction half of which
+   * cannot be followed. The copy says "add ink" for the same reason.
+   */
+  setHint(field: Float32Array | null, map: HintMap | null) {
+    if (!field || !map || map.boxedW === 0 || map.boxedH === 0) {
+      this.hint = null;
+      this.repaint();
+      return;
+    }
+
+    const layer = document.createElement('canvas');
+    layer.width = this.res;
+    layer.height = this.res;
+    const g = layer.getContext('2d');
+    if (!g) return;
+
+    const [bx, by, bw, bh] = map.bbox;
+    const [ox, oy] = map.offset;
+    // Extraction pixels to pad pixels, then field cells to extraction pixels.
+    const k = this.res / CANVAS_RES;
+    const cw = (bw / map.boxedW) * k;
+    const ch = (bh / map.boxedH) * k;
+
+    g.filter = `blur(${Math.max(2, cw * 0.3)}px)`;
+    for (let fy = 0; fy < IMG; fy++) {
+      for (let fx = 0; fx < IMG; fx++) {
+        const v = field[fy * IMG + fx];
+        // A floor, because the gradient is non-zero almost everywhere and painting all
+        // 784 cells would wash the pad out instead of pointing at anything.
+        if (v <= 0.22) continue;
+        g.fillStyle = `rgba(79, 216, 232, ${Math.min(0.55, (v - 0.22) * 0.85)})`;
+        g.fillRect((bx + (fx - ox) * (bw / map.boxedW)) * k, (by + (fy - oy) * (bh / map.boxedH)) * k, cw, ch);
+      }
+    }
+
+    this.hint = layer;
+    this.repaint();
+  }
+
   private repaint() {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.res, this.res);
+    // Under the ink: it is a suggestion about the drawing, not part of it.
+    if (this.hint) ctx.drawImage(this.hint, 0, 0);
     if (this.background) ctx.drawImage(this.background, 0, 0);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -191,6 +266,9 @@ export class DrawSurface {
     this.strokes = [];
     this.current = null;
     this.background = null;
+    // A hint belongs to one drawing. Carrying it onto a blank pad would point at ink
+    // that is no longer there.
+    this.hint = null;
     this.repaint();
     this.onChange?.();
   }

@@ -8,7 +8,7 @@
 
 use wasm_bindgen::prelude::*;
 
-use crate::explain::{explain, Explanation};
+use crate::explain::{explain, flip_gradient, Explanation};
 use crate::net::{Acts, Net};
 use crate::preprocess::{prepare, Prepared};
 use crate::tensor::Vol;
@@ -309,6 +309,20 @@ impl Engine {
     /// runner-up. This is the "what nearly changed its mind" layer.
     pub fn counterfactual(&self) -> Result<Vec<f32>, JsValue> {
         Ok(self.exp()?.counter.data.clone())
+    }
+
+    /// 28x28 in [-1,1]: where a stroke would move the answer from the winner to the
+    /// runner-up. Positive means "ink added here helps", negative means "ink removed
+    /// from here helps".
+    ///
+    /// Deliberately a different layer from `counterfactual`. That one is attribution
+    /// (gradient times input) and is therefore exactly zero on every pixel you did not
+    /// draw on, so it can explain the stroke you made but cannot suggest one you have
+    /// not made yet. This is the bare gradient, which can.
+    pub fn flip_hint(&self) -> Result<Vec<f32>, JsValue> {
+        let e = self.exp()?;
+        let (to, from) = (e.top2, e.top1);
+        Ok(flip_gradient(&self.net, self.acts()?, to, from).data)
     }
 
     /// Measured facts for the closing copy. Rust reports, the UI phrases.

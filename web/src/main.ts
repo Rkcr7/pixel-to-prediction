@@ -41,6 +41,11 @@ class App {
   private scrubbing = false;
   /** Set once the GPU context is gone. Nothing may touch GL after this. */
   private contextLost = false;
+  /**
+   * The challenge in play, if any: what the network said last time, and which class the
+   * hint on the pad is pushing towards. Null whenever the user is just drawing.
+   */
+  private fooling: { from: number; to: number } | null = null;
   private recorder: MediaRecorder | null = null;
   private reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -115,22 +120,35 @@ class App {
 
     $('againBtn').addEventListener('click', () => {
       this.surface.clear();
-      this.player.pause();
-      // Drop the run as well as the timeline, otherwise the previous answer stays
-      // painted on the canvas behind the drawing panel.
-      this.score = null;
-      this.run = null;
-      this.lastStageKey = '';
-      this.scene.clearRun();
-      // Quiet the drone while nobody is watching a run.
-      this.audio.fadePad(0);
-      $('composeFoot').textContent = '';
-      this.setMode('compose');
+      this.fooling = null;
+      this.returnToPad();
+    });
+
+    // Back to the pad with the drawing kept and the flip hint painted under it.
+    //
+    // Keeping the strokes is the whole feature. "Try another digit" starts over; this
+    // one says "that drawing, one stroke different", which is the only version of the
+    // question the hint can answer, since the hint is a first-order statement about
+    // exactly this input.
+    $('foolBtn').addEventListener('click', () => {
+      const run = this.run;
+      if (!run) return;
+      this.fooling = { from: run.evidence.top1, to: run.evidence.top2 };
+      this.surface.setHint(run.flipHint, {
+        bbox: run.prep.bbox,
+        boxedW: run.prep.boxedW,
+        boxedH: run.prep.boxedH,
+        offset: run.prep.offset,
+      });
+      this.returnToPad();
+      $('composeFoot').textContent =
+        `It said ${this.fooling.from}. Add ink where the pad glows to push it towards ${this.fooling.to}.`;
     });
     $('replayBtn').addEventListener('click', () => {
       this.setMode('reveal');
       this.player.restart();
     });
+
     $('shareBtn').addEventListener('click', () => void this.record());
 
     $('playBtn').addEventListener('click', () => this.player.toggle());
@@ -325,10 +343,60 @@ class App {
     }
   }
 
+  /**
+   * Back to the drawing pad, leaving whatever is on the surface alone.
+   *
+   * The run and the score are dropped rather than kept, because the previous answer is
+   * still painted on the GL canvas that sits behind the drawing panel and would show
+   * through it.
+   */
+  private returnToPad() {
+    this.player.pause();
+    this.score = null;
+    this.run = null;
+    this.lastStageKey = '';
+    this.scene.clearRun();
+    // Quiet the drone while nobody is watching a run.
+    this.audio.fadePad(0);
+    $('composeFoot').textContent = '';
+    this.setMode('compose');
+  }
+
+  /**
+   * The verdict on a challenge, if one is in play.
+   *
+   * "Fooled" means only that the answer moved off what it was, which is the honest claim
+   * this app can make: whether a human still reads the drawing as the original digit is
+   * not something the network knows, and pretending to check it would be a lie. So the
+   * line reports the move and leaves the judging to the person who drew it.
+   */
+  private fillFoolVerdict(e: Run['evidence']) {
+    const el = $('resultFool');
+    const game = this.fooling;
+    if (!game) {
+      el.hidden = true;
+      el.classList.remove('result__fool--won');
+      return;
+    }
+
+    const moved = e.top1 !== game.from;
+    el.classList.toggle('result__fool--won', moved);
+    el.textContent = moved
+      ? `You fooled it. It said ${game.from} before, and ${e.top1} now.`
+      : `Still ${e.top1}. The runner-up is ${e.top2} now, so the glow has moved with it.`;
+    el.hidden = false;
+
+    // The challenge is always against the latest answer, so a failed attempt rolls
+    // forward rather than chasing a target the network has already left behind.
+    if (!moved) this.fooling = { from: e.top1, to: e.top2 };
+    else this.fooling = null;
+  }
+
   private fillResult(run: Run) {
     const e = run.evidence;
     const words = explain(e);
 
+    this.fillFoolVerdict(e);
     $('resultDigit').textContent = String(e.top1);
     $('resultPct').textContent = formatConfidence(e.p1);
     // `verdict` already ends its own sentence, so the confidence phrase starts a new one
