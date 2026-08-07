@@ -20,7 +20,17 @@
   --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-emph: cubic-bezier(0.2, 0, 0, 1);
 
+  /*
+   * svh, not vh, for anything that has to fit on screen.
+   *
+   * On mobile `vh` resolves against the LARGE viewport, the one you get with the browser
+   * toolbar hidden. With the toolbar showing, that is 50 to 120px taller than what the
+   * user can actually see, so a pad sized at 58vh overflowed the visible area and pushed
+   * the reveal button under the chrome. `svh` is the small viewport: the guaranteed-visible
+   * one. The vh line stays first as the fallback for browsers without svh.
+   */
   --pad-size: min(58vh, 62vw, 420px);
+  --pad-size: min(58svh, 62vw, 420px);
   --safe-b: env(safe-area-inset-bottom, 0px);
 
   color-scheme: dark;
@@ -234,10 +244,20 @@ body:not([data-mode='loading']) .boot {
   transition: color 0.2s, border-color 0.2s, background 0.2s;
 }
 
-.icon-btn:hover {
-  color: var(--text);
-  border-color: var(--line-strong);
-  background: rgba(255, 255, 255, 0.03);
+/*
+ * Hover states are gated on a device that actually has a pointer.
+ *
+ * A touch browser applies :hover on tap and leaves it applied until you tap something
+ * else, so every button on a phone kept a lit border after being pressed. The guard is
+ * per-rule rather than one block at the end of the file so each state stays next to the
+ * base style it modifies.
+ */
+@media (hover: hover) and (pointer: fine) {
+  .icon-btn:hover {
+    color: var(--text);
+    border-color: var(--line-strong);
+    background: rgba(255, 255, 255, 0.03);
+  }
 }
 
 .icon-btn[aria-pressed='false'] {
@@ -291,9 +311,14 @@ body:not([data-mode='loading']) .boot {
   transition: border-color 0.3s var(--ease-expo), box-shadow 0.3s var(--ease-expo);
 }
 
-.pad:focus-within,
-.pad:hover {
+.pad:focus-within {
   border-color: var(--line-strong);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pad:hover {
+    border-color: var(--line-strong);
+  }
 }
 
 .pad--inked {
@@ -380,9 +405,11 @@ body:not([data-mode='loading']) .boot {
     color 0.24s, transform 0.24s var(--ease-expo), opacity 0.24s;
 }
 
-.btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.045);
-  border-color: var(--line-strong);
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.045);
+    border-color: var(--line-strong);
+  }
 }
 
 .btn:active:not(:disabled) {
@@ -407,17 +434,21 @@ body:not([data-mode='loading']) .boot {
   box-shadow: 0 10px 34px -16px rgba(248, 179, 60, 0.75);
 }
 
-.btn--primary:hover:not(:disabled) {
-  background: #ffc457;
-  border-color: #ffc457;
+@media (hover: hover) and (pointer: fine) {
+  .btn--primary:hover:not(:disabled) {
+    background: #ffc457;
+    border-color: #ffc457;
+  }
 }
 
 .btn__arrow {
   transition: transform 0.3s var(--ease-expo);
 }
 
-.btn--primary:hover:not(:disabled) .btn__arrow {
-  transform: translateX(3px);
+@media (hover: hover) and (pointer: fine) {
+  .btn--primary:hover:not(:disabled) .btn__arrow {
+    transform: translateX(3px);
+  }
 }
 
 .btn:focus-visible,
@@ -677,10 +708,12 @@ body[data-chrome='active'] .rail {
   transition: color 0.2s, border-color 0.2s, background 0.2s;
 }
 
-.tbtn:hover {
-  color: var(--text);
-  border-color: var(--line-strong);
-  background: rgba(255, 255, 255, 0.035);
+@media (hover: hover) and (pointer: fine) {
+  .tbtn:hover {
+    color: var(--text);
+    border-color: var(--line-strong);
+    background: rgba(255, 255, 255, 0.035);
+  }
 }
 
 .tbtn--play {
@@ -859,6 +892,7 @@ body[data-mode='result'] .result {
     padding: 18px;
     gap: 10px;
     max-height: min(64vh, 520px);
+    max-height: min(64svh, 520px);
     overflow-y: auto;
   }
 
@@ -878,6 +912,7 @@ body[data-mode='result'] .result {
 @media (max-width: 480px) {
   :root {
     --pad-size: min(52vh, 78vw);
+    --pad-size: min(52svh, 78vw);
   }
 
   .compose__actions .btn {

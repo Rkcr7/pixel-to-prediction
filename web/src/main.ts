@@ -39,6 +39,8 @@ class App {
   private speedIndex = 1;
   private lastFrame = 0;
   private scrubbing = false;
+  /** Set once the GPU context is gone. Nothing may touch GL after this. */
+  private contextLost = false;
   private recorder: MediaRecorder | null = null;
   private reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -67,6 +69,7 @@ class App {
     ).toFixed(2)}% on MNIST · runs on your device`;
 
     this.wire();
+    this.wireContextLoss();
     this.resize();
     this.setMode('compose');
     $('app').hidden = false;
@@ -170,6 +173,12 @@ class App {
 
     window.addEventListener('pointermove', (e) => {
       // Gentle parallax. Decorative only, and never applied while recording.
+      //
+      // Mouse only. A touch drag also emits pointermove, so on a phone the scene lurched
+      // sideways every time someone swiped or scrolled, and then stayed there: there is
+      // no pointerleave on touch to put it back. A decorative effect that needs a hover
+      // position has no meaning on a device with no hover.
+      if (e.pointerType !== 'mouse') return;
       this.scene.parallax = [
         (e.clientX / window.innerWidth - 0.5) * 2,
         -(e.clientY / window.innerHeight - 0.5) * 2,
@@ -498,8 +507,46 @@ class App {
     return written;
   }
 
+  /**
+   * Survive a lost GPU context.
+   *
+   * Backgrounding a tab, a driver reset, or memory pressure on a phone all take the
+   * WebGL context away, and without a handler the canvas simply goes black forever with
+   * no error and no way back. It is not an exotic case on mobile.
+   *
+   * The recovery is a reload rather than a rebuild. Every GL object this app holds
+   * (programs, texture arrays, framebuffers, instance buffers) is invalid after a loss,
+   * and re-creating them piecemeal in the right order is exactly the kind of code that
+   * is written once, never exercised, and wrong when it finally runs. A reload is one
+   * line and is correct by construction; the cost is the drawing, which is a fair trade
+   * against a silently dead canvas.
+   */
+  private wireContextLoss() {
+    const canvas = $<HTMLCanvasElement>('stage');
+
+    canvas.addEventListener('webglcontextlost', (e) => {
+      // Without preventDefault the browser will not attempt to restore the context.
+      e.preventDefault();
+      this.contextLost = true;
+      this.audio.setEnabled(false);
+      $('unsupportedTitle').textContent = 'The graphics context was lost';
+      $('unsupported').querySelector('p')!.textContent =
+        'This usually happens when the tab was in the background or the device ran low on memory. Reloading will start it again.';
+      $('unsupported').hidden = false;
+      $('app').hidden = true;
+    });
+
+    canvas.addEventListener('webglcontextrestored', () => {
+      // The GPU is back, so a reload will come up immediately rather than failing again.
+      window.location.reload();
+    });
+  }
+
   private loop = (now: number) => {
     requestAnimationFrame(this.loop);
+    // Every buffer and program is invalid until the page reloads, so drawing would only
+    // produce a stream of GL errors.
+    if (this.contextLost) return;
     const frameMs = this.lastFrame ? Math.min(64, now - this.lastFrame) : 16.7;
     this.lastFrame = now;
 
