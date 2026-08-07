@@ -376,8 +376,7 @@ mod tests {
 
         for unit in [0usize, 7, 19, 31] {
             let row = &n.fc1.w[unit * FLAT..(unit + 1) * FLAT];
-            let agreement: f32 =
-                row.iter().zip(&a.pool2.data).map(|(w, v)| w * v).sum();
+            let agreement: f32 = row.iter().zip(&a.pool2.data).map(|(w, v)| w * v).sum();
             let total = agreement + n.fc1.b[unit];
             assert!(
                 (total - a.fc1_pre[unit]).abs() < 1e-3,

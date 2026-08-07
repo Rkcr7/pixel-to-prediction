@@ -235,11 +235,7 @@ impl Engine {
             return Err(JsValue::from_str("hidden unit out of range"));
         }
         let row = &d.w[unit * d.n_in..(unit + 1) * d.n_in];
-        Ok(row
-            .iter()
-            .zip(&a.pool2.data)
-            .map(|(w, x)| w * x)
-            .collect())
+        Ok(row.iter().zip(&a.pool2.data).map(|(w, x)| w * x).collect())
     }
 
     /// Bias for one hidden unit, so the running sum can be shown reaching its real total.
