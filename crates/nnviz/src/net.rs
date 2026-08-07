@@ -364,6 +364,40 @@ mod tests {
         assert!((sum - 1.0).abs() < 1e-5);
     }
 
+    /// The dense layer drawn as three panels (the unit's weights, the drawing's
+    /// features, and their element-wise agreement) is only honest if the agreement panel
+    /// actually sums to the number the unit reports. This pins that identity.
+    #[test]
+    fn hidden_unit_agreement_sums_to_its_preactivation() {
+        let n = Net::new_random(21);
+        let mut r = Rng::new(99);
+        let x = Vol::from_vec(1, 28, 28, (0..784).map(|_| r.f32()).collect());
+        let a = n.forward(&x);
+
+        for unit in [0usize, 7, 19, 31] {
+            let row = &n.fc1.w[unit * FLAT..(unit + 1) * FLAT];
+            let agreement: f32 =
+                row.iter().zip(&a.pool2.data).map(|(w, v)| w * v).sum();
+            let total = agreement + n.fc1.b[unit];
+            assert!(
+                (total - a.fc1_pre[unit]).abs() < 1e-3,
+                "unit {unit}: panel sums to {total} but the unit reports {}",
+                a.fc1_pre[unit]
+            );
+        }
+    }
+
+    /// A hidden unit's weight row reshapes exactly onto the pooled feature stack, which
+    /// is what lets the two be drawn in the same coordinates.
+    #[test]
+    fn hidden_unit_weight_row_matches_the_feature_stack_shape() {
+        let n = Net::new_random(4);
+        let a = n.forward(&Vol::zeros(1, 28, 28));
+        assert_eq!(n.fc1.n_in, a.pool2.len());
+        assert_eq!(a.pool2.c * a.pool2.h * a.pool2.w, C2 * 7 * 7);
+        assert_eq!(n.fc1.n_in, FLAT);
+    }
+
     #[test]
     fn weights_round_trip_through_bytes() {
         let n = Net::new_random(9);

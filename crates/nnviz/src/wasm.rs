@@ -208,6 +208,50 @@ impl Engine {
         self.net.conv2.w.clone()
     }
 
+    /// One hidden unit's 784 weights.
+    ///
+    /// These come back in the same channel-major order as `pool2`, which means they can
+    /// be reshaped straight back into 16 planes of 7x7 and drawn with the identical
+    /// layout as the feature stack. That is the whole trick behind making a dense layer
+    /// legible: the unit's weights are literally an image of what it is looking for, in
+    /// the same coordinates as the thing it is looking at.
+    pub fn fc1_weights(&self, unit: usize) -> Result<Vec<f32>, JsValue> {
+        let d = &self.net.fc1;
+        if unit >= d.n_out {
+            return Err(JsValue::from_str("hidden unit out of range"));
+        }
+        Ok(d.w[unit * d.n_in..(unit + 1) * d.n_in].to_vec())
+    }
+
+    /// Element-wise weight x feature for one hidden unit, same 784 layout.
+    ///
+    /// This is the middle term of the dot product: where the unit's template and the
+    /// drawing's features actually agree. Summing it and adding the bias gives exactly
+    /// `fc1_pre`, so the picture and the number cannot drift apart.
+    pub fn fc1_agreement(&self, unit: usize) -> Result<Vec<f32>, JsValue> {
+        let a = self.acts()?;
+        let d = &self.net.fc1;
+        if unit >= d.n_out {
+            return Err(JsValue::from_str("hidden unit out of range"));
+        }
+        let row = &d.w[unit * d.n_in..(unit + 1) * d.n_in];
+        Ok(row
+            .iter()
+            .zip(&a.pool2.data)
+            .map(|(w, x)| w * x)
+            .collect())
+    }
+
+    /// Bias for one hidden unit, so the running sum can be shown reaching its real total.
+    pub fn fc1_bias(&self, unit: usize) -> Result<f32, JsValue> {
+        self.net
+            .fc1
+            .b
+            .get(unit)
+            .copied()
+            .ok_or_else(|| JsValue::from_str("hidden unit out of range"))
+    }
+
     // -- contributions (Stage 5) --------------------------------------------
 
     /// All 320 fc1 -> logits contributions as weight x activation, laid out

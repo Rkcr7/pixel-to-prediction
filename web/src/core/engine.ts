@@ -159,6 +159,27 @@ export class Engine {
     return this.wasm.dream(digit, steps);
   }
 
+  /**
+   * One hidden unit's 784 weights, in the same channel-major order as `pool2`.
+   *
+   * They reshape straight onto the feature stack, so a unit's template and the drawing's
+   * features can be drawn in identical coordinates. That is what makes a dense layer
+   * explainable rather than a hairball.
+   */
+  hiddenWeights(unit: number): Float32Array {
+    return this.wasm.fc1_weights(unit);
+  }
+
+  /** weight x feature, element-wise: where the unit's template and the drawing agree. */
+  hiddenAgreement(unit: number): Float32Array {
+    return this.wasm.fc1_agreement(unit);
+  }
+
+  /** Bias for one hidden unit. Summing the agreement and adding this gives `fc1Pre`. */
+  hiddenBias(unit: number): number {
+    return this.wasm.fc1_bias(unit);
+  }
+
   /** One prototype as a 784-length view. */
   prototype(digit: number): Float32Array {
     return this.prototypes.subarray(digit * 784, (digit + 1) * 784);
