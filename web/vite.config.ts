@@ -22,9 +22,23 @@ function frameDump(): Plugin {
           res.end('POST only');
           return;
         }
+        // Cap the body. This only ever runs on a dev server, but an unbounded accumulator
+        // behind an open endpoint is not something to leave in a public repository.
+        const LIMIT = 32 * 1024 * 1024;
         const chunks: Buffer[] = [];
-        req.on('data', (c: Buffer) => chunks.push(c));
+        let size = 0;
+        req.on('data', (c: Buffer) => {
+          size += c.length;
+          if (size > LIMIT) {
+            res.statusCode = 413;
+            res.end('too large');
+            req.destroy();
+            return;
+          }
+          chunks.push(c);
+        });
         req.on('end', () => {
+          if (size > LIMIT) return;
           try {
             const { name, dataUrl } = JSON.parse(Buffer.concat(chunks).toString());
             const base64 = String(dataUrl).split(',')[1] ?? '';

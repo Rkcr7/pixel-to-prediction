@@ -536,7 +536,10 @@ mod tests {
         assert!(g.data.iter().all(|v| (-1.0..=1.0).contains(v)));
 
         let blank: Vec<usize> = (0..784).filter(|&i| x.data[i] == 0.0).collect();
-        assert!(blank.len() > 700, "input was not sparse enough to test this");
+        assert!(
+            blank.len() > 700,
+            "input was not sparse enough to test this"
+        );
         assert!(
             blank.iter().all(|&i| e.counter.data[i] == 0.0),
             "attribution must be zero wherever there is no ink",
