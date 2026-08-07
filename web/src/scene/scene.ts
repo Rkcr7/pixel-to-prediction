@@ -803,7 +803,45 @@ export class Scene {
           valueScale: this.scales.pool1,
           cellBias: 1,
           grid: isHero ? focus * 0.8 : 0,
-        }, { highlight: contest * 0.7 });
+        });
+      }
+
+      // The contest, drawn as the actual 2x2 argmax.
+      //
+      // This used to be a uniform brightening of the whole plate, which says "something
+      // is happening to pooling" and nothing else. The engine already returns which cell
+      // of each window won (`pool1_winners`, encoded ky*2+kx, pinned by a Rust test), so
+      // the honest picture is available for free: mark the survivors and let the reader
+      // see that the winners are scattered exactly along the stroke.
+      //
+      // Windows whose maximum is essentially zero are skipped. After ReLU most of this
+      // map is flat zero, and an argmax over four zeros is an arbitrary index — marking
+      // it would be inventing a winner for a contest nobody entered.
+      if (isHero && contest > 0.004) {
+        const half = IMG / 2;
+        const cell = size / IMG;
+        for (let py = 0; py < half; py++) {
+          for (let px = 0; px < half; px++) {
+            const oi = i * half * half + py * half + px;
+            const strength = run.pool1[oi] * this.scales.pool1;
+            if (strength < 0.05) continue;
+            const a = run.pool1Winners[oi];
+            const cx = px * 2 + (a & 1);
+            const cy = py * 2 + (a >> 1);
+            // Texture row 0 is the top of the plate, and +Y is up in world space.
+            r.sprite(
+              [
+                pos[0] + ((cx + 0.5) / IMG - 0.5) * size,
+                pos[1] + (0.5 - (cy + 0.5) / IMG) * size,
+                pos[2] + 0.04,
+              ],
+              [cell * 0.86, cell * 0.86],
+              ACCENT,
+              contest * Math.min(1, 0.35 + strength),
+              { mode: SPRITE_BAR, radius: 0.03, softness: 0.012, intensity: 1.9 },
+            );
+          }
+        }
       }
     }
 

@@ -216,9 +216,15 @@ export function buildScore(run: Run): Score {
   b.at(22.0).add('cam.zoom', 1.0, 1, 0.78, emphasized);
   b.at(22.0).add('cam.centerAdjust', 1.0, 0, -0.62, emphasized);
 
-  b.at(23.3).add('s4.contest', 0.35, 0, 1, smooth).cue('contest');
-  b.at(23.65).add('s4.contest', 0.3, 1, 0, smooth);
-  b.at(23.8).add('s4.contract', 1.0, 0, 1, emphasized).cue('contract');
+  // The contest holds now, instead of blinking.
+  //
+  // It used to be a 0.35s flash, which was the right length for a uniform brightening
+  // that carried no information. It now marks the actual winning cell of all 196 windows,
+  // and a reader needs time to see that the survivors trace the stroke. The extra second
+  // comes out of the dead hold that followed, so the stage is the same length.
+  b.at(23.2).add('s4.contest', 0.5, 0, 1, smooth).cue('contest');
+  b.at(24.5).add('s4.contest', 0.5, 1, 0, smooth);
+  b.at(24.6).add('s4.contract', 1.0, 0, 1, emphasized).cue('contract');
   // No caption for the contest. The scene already carries "each 2 by 2 block keeps only
   // its brightest cell" anchored directly to the grid it is about, and repeating it in
   // the panel would print the same sentence twice on one screen while displacing the
@@ -229,12 +235,12 @@ export function buildScore(run: Run): Score {
   // Releasing s4.focus would send the hero plate back to its grid slot AND restore the
   // other seven from 4% opacity to full, right as the camera starts moving. Eight plates
   // popping back to full brightness while the lens rushes past them is not a transition.
-  b.at(26.3).add('s3.fade', 0.9, 1, 0, smooth);
-  b.at(26.9).add('cam.station', 1.45, 1, 2, emphasized);
-  b.at(26.9).add('cam.zoom', 0.95, 0.78, 1, smooth);
-  b.at(26.9).add('cam.centerAdjust', 0.95, -0.62, 0, smooth);
+  b.at(26.5).add('s3.fade', 0.9, 1, 0, smooth);
+  b.at(27.0).add('cam.station', 1.45, 1, 2, emphasized);
+  b.at(27.0).add('cam.zoom', 0.95, 0.78, 1, smooth);
+  b.at(27.0).add('cam.centerAdjust', 0.95, -0.62, 0, smooth);
   // Only now is it safe to reset, with the station already invisible.
-  b.at(28.0).add('s4.focus', 0.3, 1, 0, smooth);
+  b.at(28.1).add('s4.focus', 0.3, 1, 0, smooth);
 
   // Only once the camera has actually arrived. Staggering these in mid-flight makes
   // them appear off-centre and then slide, which reads as a glitch rather than a reveal.
