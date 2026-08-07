@@ -17,14 +17,16 @@ import type { Label } from '../ui/annotations';
 import { C1, C2, CANVAS_RES, CLASSES, HIDDEN, IMG, K1, POOL2 } from './constants';
 import {
   arcControl,
-  BAR_BASE_Y,
   BAR_MAX_HEIGHT,
-  BAR_WIDTH,
-  barX,
+  barPlacement,
+  barAxis,
+  budgetBox,
+  readingAnchor,
+  protoTarget,
   candidateSlot,
-  CANDIDATE_X,
-  RAIL_AXIS_X,
-  FLOOR_LABEL_Y,
+  candidateLayout,
+  railAxisX,
+  floorLabelY,
   conv1Grid,
   conv2Grid,
   fitDistance,
@@ -33,17 +35,19 @@ import {
   FOV,
   gridCell,
   HIDDEN_X,
+  hiddenOrigin,
   hiddenSlot,
   kernelSlot,
   mixVec,
-  PANEL_GRID,
-  PANEL_LABEL_Y,
-  PANEL_X,
+  panelGrid,
+  panelLabelY,
+  panelOrigin,
   panelSlot,
-  POOL2_BLOCK_X,
+  pool2Origin,
   pool2Slot,
   SUM_MAX_WIDTH,
-  SUM_Y,
+  sumY,
+  sumOriginX,
   stationFrames,
   Z,
   type GridSpec,
@@ -149,14 +153,50 @@ export class Scene {
   private conv1: GridSpec = conv1Grid(1.78);
   private conv2: GridSpec = conv2Grid(1.78);
 
+  /**
+   * The true frustum aspect, which is not always the one the layout should follow.
+   *
+   * `aspect` below is a *layout* aspect: a value chosen so that `isPortrait()` agrees with
+   * the stylesheet about where the story panel is. This one is the real width over height,
+   * and only the camera's horizontal fit may use it.
+   */
+  private trueAspect = 1.78;
+
   private refreshLayout() {
     const aspect = this.renderer.aspect;
-    if (Math.abs(aspect - this.aspect) < 1e-4) return;
-    this.aspect = aspect;
-    this.portrait = aspect < 0.95;
-    this.frames = stationFrames(aspect);
-    this.conv1 = conv1Grid(aspect);
-    this.conv2 = conv2Grid(aspect);
+
+    // Ask the question the stylesheet asks.
+    //
+    // The panel moves to the bottom at `(max-width: 900px), (orientation: portrait)`,
+    // which is width <= 900 OR aspect <= 1. The scene used to switch at aspect < 0.95, so
+    // between those two rules the panel sat at the bottom while the camera was still
+    // reserving the left: at 1038x1081 that put ten labels straight onto the panel. A
+    // small landscape window, 800x600, disagreed the same way.
+    //
+    // Rather than thread a second flag through every layout function, this maps the
+    // decision onto an aspect that `isPortrait()` already answers correctly.
+    const stacked = this.renderer.cssWidth <= 900 || aspect <= 1;
+    const layoutAspect = stacked ? Math.min(aspect, 0.9) : Math.max(aspect, 1.0);
+
+    if (Math.abs(layoutAspect - this.aspect) < 1e-4 && Math.abs(aspect - this.trueAspect) < 1e-4) {
+      return;
+    }
+    const wasPortrait = this.portrait;
+    this.trueAspect = aspect;
+    this.aspect = layoutAspect;
+    this.portrait = stacked;
+    this.frames = stationFrames(layoutAspect);
+    this.conv1 = conv1Grid(layoutAspect);
+    this.conv2 = conv2Grid(layoutAspect);
+
+    // Particle paths are baked from node positions when the run is loaded, and the dense
+    // station moves its nodes when it changes orientation. Without this, rotating a phone
+    // mid-run leaves every stream flying between where the lattice used to be and where
+    // the candidates used to be.
+    if (this.run && wasPortrait !== this.portrait) {
+      this.buildFlowA(this.run);
+      this.buildFlowB(this.run);
+    }
   }
 
   private label(
@@ -385,13 +425,13 @@ export class Scene {
       const cx = within % POOL2;
       const cy = Math.floor(within / POOL2);
 
-      const base = pool2Slot(channel, Z.dense);
+      const base = pool2Slot(channel, Z.dense, this.aspect);
       const from: Vec3 = [
         base[0] + (cx / (POOL2 - 1) - 0.5) * 0.72,
         base[1] - (cy / (POOL2 - 1) - 0.5) * 0.72,
         base[2],
       ];
-      const to = hiddenSlot(dst, Z.dense);
+      const to = hiddenSlot(dst, Z.dense, this.aspect);
       const ctrl = arcControl(from, to, 0.55, e);
 
       for (let k = 0; k < perEdge; k++) {
@@ -445,8 +485,8 @@ export class Scene {
       const cls = Math.floor(idx / HIDDEN);
       const unit = idx % HIDDEN;
       const value = contrib[idx] / scale;
-      const from = hiddenSlot(unit, Z.dense);
-      const to = candidateSlot(cls, Z.dense);
+      const from = hiddenSlot(unit, Z.dense, this.aspect);
+      const to = candidateSlot(cls, Z.dense, this.aspect);
       const ctrl = arcControl(from, to, 0.55, e);
       for (let k = 0; k < perEdge; k++) {
         writeParticle(data, n++, from, to, ctrl, {
@@ -512,10 +552,21 @@ export class Scene {
     // framing survives any window shape including portrait phones. `cam.zoom` then lets
     // a beat push in on a single element — a filter reading the image, or one map being
     // pooled — which is the difference between watching a process and squinting at it.
+    // Two aspects, deliberately. The reserve and the station shapes follow the layout
+    // aspect, which agrees with the stylesheet; the frustum's horizontal fit has to use
+    // the real one or the camera solves for a viewport that does not exist.
     const aspect = this.aspect;
-    const zoom = v['cam.zoom'] ?? 1;
+    const trueAspect = this.trueAspect;
+    // Beat-level push-ins are authored against landscape, where a station is wide and a
+    // detail inside it needs closing on. Portrait rearranges those same stations to use
+    // the full height already, so applying the push-in at full strength overflows the
+    // frame: the dense station's 0.82 put the first panel heading above the topbar.
+    // Softening rather than ignoring keeps the beat readable as a move.
+    const rawZoom = v['cam.zoom'] ?? 1;
+    const zoom = this.portrait ? 1 - (1 - rawZoom) * 0.3 : rawZoom;
     const dist =
-      lerp(fitDistance(frames[i], aspect), fitDistance(frames[i + 1], aspect), f) * zoom;
+      lerp(fitDistance(frames[i], trueAspect, aspect), fitDistance(frames[i + 1], trueAspect, aspect), f) *
+      zoom;
 
     // A station's centre is chosen to frame all of its content. When a beat pushes in on
     // one element the rest of that content is no longer in shot, so the aim has to come
@@ -527,8 +578,10 @@ export class Scene {
     // away from the reserved side pushes the content the other way on screen.
     const safe = safeArea(aspect);
     const visibleHeight = 2 * dist * Math.tan(FOV / 2);
-    const shiftX = ((1 - safe.width) / 2) * visibleHeight * aspect;
-    const shiftY = ((1 - safe.height) / 2) * visibleHeight;
+    const shiftX = ((1 - safe.width) / 2) * visibleHeight * trueAspect;
+    // How far the usable band's centre is from the middle of the frame. Aiming the camera
+    // down by this much lifts the content by the same amount on screen.
+    const shiftY = (0.5 - safe.centerY) * visibleHeight;
 
     // Which side the reserve is on, because the chrome swaps sides at the end: the story
     // panel sits on the left for the whole walkthrough, and then the answer card replaces
@@ -540,7 +593,14 @@ export class Scene {
     // part of a camera move that is happening anyway rather than as a jump.
     const toAnswer = clamp01(((v['cam.station'] ?? 0) - 3.05) / 0.9);
     const gutterX = this.portrait ? 0 : -shiftX * (1 - 2 * toAnswer);
-    const gutterY = this.portrait ? shiftY : 0;
+    // Negative, because in portrait the panel is at the BOTTOM.
+    //
+    // Aiming the camera away from the reserved side pushes content the other way, so a
+    // positive shift here reserved the top and drove every station down into the panel
+    // that was already there. Measured on a 390x806 viewport: the panel occupies the
+    // bottom quarter, and the input grid, the softmax bars and the candidate column all
+    // ran underneath it while the top half of the screen sat empty.
+    const gutterY = this.portrait ? -shiftY : 0;
 
     const px = this.parallaxEnabled ? this.parallax[0] * 0.4 : 0;
     const py = this.parallaxEnabled ? this.parallax[1] * 0.26 : 0;
@@ -739,7 +799,7 @@ export class Scene {
       // Gone before the pooling close-up. This station stays on screen into stage 4, and
       // a caption about ReLU sitting under a 2x2 contest is describing the previous
       // operation — worse than saying nothing, because it is still true and still wrong.
-      Math.max(v['s3.reluHint'] ?? 0, relu) * (1 - focus) * fade * 0.95,
+      Math.max(v['s3.reluHint'] ?? 0, relu) * clamp01(1 - focus * 3) * fade * 0.95,
       { kind: 'tag' },
     );
 
@@ -849,7 +909,7 @@ export class Scene {
       's4.pooling',
       'each 2 by 2 block keeps only its brightest cell',
       [0, -2.9, z],
-      focus * fade * 0.95,
+      clamp01((focus - 0.45) / 0.55) * fade * 0.95,
       { kind: 'tag' },
     );
     this.label(
@@ -924,10 +984,15 @@ export class Scene {
     this.label('s4.combined', '16 new features', [0, 4.55, z], arrived * 0.92, { kind: 'tag' });
     // Name the winner rather than leaving the ranking implicit.
     const top = run.conv2Order[0];
+    // Under the winning map, unless the winner is in the bottom half of the grid, in
+    // which case above it. Portrait stacks conv2 eight rows deep, so a label pinned below
+    // a bottom-row winner lands past the frame and onto the story panel.
+    const winnerCell = gridCell(this.conv2, top, z);
+    const side = winnerCell[1] > 0 ? -1.12 : 1.12;
     this.label(
       's4.top',
       'strongest response',
-      [gridCell(this.conv2, top, z)[0], gridCell(this.conv2, top, z)[1] - 1.12, z],
+      [winnerCell[0], winnerCell[1] + side, z],
       rank * fade * 0.95,
       { kind: 'tag' },
     );
@@ -958,10 +1023,10 @@ export class Scene {
 
     if (block > 0.002 && gather < 0.999) {
       for (let i = 0; i < C2; i++) {
-        const home = pool2Slot(i, z);
-        const middle = panelSlot(1, i, z);
+        const home = pool2Slot(i, z, this.aspect);
+        const middle = panelSlot(1, i, z, this.aspect);
         const pos = mixVec(home, middle, panels);
-        const size = lerp(POOL2_GRID.plate, PANEL_GRID.plate, panels);
+        const size = lerp(POOL2_GRID.plate, panelGrid(this.aspect).plate, panels);
         r.plate('pool2', i, pos, [size, size], {
           opacity: block * (1 - gather) * decisionFade,
           valueScale: this.scales.pool2,
@@ -976,7 +1041,7 @@ export class Scene {
           // What this unit is looking for. Harley's framing: a unit's activation is how
           // closely the layer below matches its learned ideal input, and that ideal is
           // held in the strengths of its own edges.
-          r.plate('unitW', i, panelSlot(0, i, z), [PANEL_GRID.plate, PANEL_GRID.plate], {
+          r.plate('unitW', i, panelSlot(0, i, z, this.aspect), [panelGrid(this.aspect).plate, panelGrid(this.aspect).plate], {
             opacity: panels * decisionFade,
             valueScale: f.weightScale,
             cellBias: 1,
@@ -984,7 +1049,7 @@ export class Scene {
           }, { signedMix: 1 });
 
           if (agreeIn > 0.004) {
-            r.plate('unitA', i, panelSlot(2, i, z), [PANEL_GRID.plate, PANEL_GRID.plate], {
+            r.plate('unitA', i, panelSlot(2, i, z, this.aspect), [panelGrid(this.aspect).plate, panelGrid(this.aspect).plate], {
               opacity: panels * agreeIn * decisionFade,
               valueScale: f.agreeScale,
               cellBias: 1,
@@ -1006,7 +1071,7 @@ export class Scene {
     for (let i = 0; i < HIDDEN; i++) {
       const o = (v[`s5.unit${i}`] ?? 0) * (1 - gather) * decisionFade;
       if (o <= 0.002) continue;
-      const slot = hiddenSlot(i, z);
+      const slot = hiddenSlot(i, z, this.aspect);
       const a = run.fc1[i] / fc1Max;
 
       r.sprite(slot, [0.27, 0.27], CHROME, o * 0.3, {
@@ -1045,11 +1110,12 @@ export class Scene {
     for (let c = 0; c < CLASSES; c++) {
       const o = (v[`s5.cand${c}`] ?? 0) * decisionFade;
       if (o <= 0.002) continue;
-      const home = candidateSlot(c, z);
+      const home = candidateSlot(c, z, this.aspect);
       // Clear of the container so the percentage label has somewhere to sit. A full bar
       // reaches BAR_MAX_HEIGHT and its reading sits half a unit past that, so the glyph
       // row needs the rest of the gap to itself.
-      const barTarget: Vec3 = [barX(c), BAR_BASE_Y + BAR_MAX_HEIGHT + 1.3, z];
+      const pt = protoTarget(c, this.aspect);
+      const barTarget: Vec3 = [pt[0], pt[1], z];
       const pos = mixVec(home, barTarget, gather);
       const mass = positiveMass[c] / massMax;
       // Once the answer locks, the winning candidate is the only one still fully lit.
@@ -1078,7 +1144,7 @@ export class Scene {
         const unit = (1.05 / oppositionMax) * weigh;
         const forLen = positiveMass[c] * unit;
         const againstLen = negativeMass[c] * unit;
-        const axis = RAIL_AXIS_X;
+        const axis = railAxisX(this.aspect);
 
         r.sprite([axis, pos[1], pos[2] - 0.02], [0.014, 0.3], CHROME, meter * 0.5, {
           mode: SPRITE_BAR,
@@ -1118,14 +1184,14 @@ export class Scene {
     this.label(
       's5.features',
       '16 maps, 7 by 7 each: 784 numbers',
-      [POOL2_BLOCK_X, 2.35, z],
-      block * showGroups * (1 - (v['s5.panels'] ?? 0)) * 0.9,
+      [pool2Origin(this.aspect)[0], pool2Origin(this.aspect)[1] + (this.portrait ? 1.5 : 2.35), z],
+      block * showGroups * clamp01(1 - (v['s5.panels'] ?? 0) * 3) * 0.9,
       { kind: 'tag' },
     );
     this.label(
       's5.units',
       '32 hidden units',
-      [HIDDEN_X, 2.72, z],
+      [hiddenOrigin(this.aspect)[0], hiddenOrigin(this.aspect)[1] + (this.portrait ? 2.6 : 2.72), z],
       (v['s5.unit0'] ?? 0) * clamp01((lattice - 0.45) / 0.55) * showGroups * 0.9,
       { kind: 'tag' },
     );
@@ -1146,17 +1212,17 @@ export class Scene {
     this.label(
       's5.fired',
       `${this.featured.fired} of 32 units fired`,
-      [HIDDEN_X, FLOOR_LABEL_Y, z],
+      [this.portrait ? 0 : HIDDEN_X, floorLabelY(this.aspect), z],
       (v['s5.unit31'] ?? 0) * showGroups * (v['s5.lattice'] ?? 0) * 0.95,
       { kind: 'tag' },
     );
-    this.label('s5.cands', '10 candidates', [CANDIDATE_X, 3.62, z], (v['s5.cand0'] ?? 0) * showGroups * 0.9, {
+    this.label('s5.cands', '10 candidates', [candidateLayout(this.aspect).x, this.portrait ? 1.4 : 3.62, z], (v['s5.cand0'] ?? 0) * showGroups * 0.9, {
       kind: 'tag',
     });
     this.label(
       's5.sign',
       'cyan argues for, coral against',
-      [RAIL_AXIS_X, FLOOR_LABEL_Y, z],
+      [this.portrait ? 0 : HIDDEN_X, floorLabelY(this.aspect) - 0.58, z],
       (v['s5.flowB'] ?? 0) * showGroups * 0.9,
       { kind: 'tag' },
     );
@@ -1180,28 +1246,29 @@ export class Scene {
     this.label(
       's5.panelW',
       `what unit ${f.unit + 1} is looking for`,
-      [PANEL_X[0], PANEL_LABEL_Y, z],
+      [panelOrigin(0, this.aspect)[0], panelLabelY(0, this.aspect), z],
       alpha * 0.95,
       { kind: 'tag' },
     );
-    this.label('s5.panelF', 'what your digit has', [PANEL_X[1], PANEL_LABEL_Y, z], alpha * 0.95, {
+    this.label('s5.panelF', 'what your digit has', [panelOrigin(1, this.aspect)[0], panelLabelY(1, this.aspect), z], alpha * 0.95, {
       kind: 'tag',
     });
     this.label(
       's5.panelA',
       'where the two agree',
-      [PANEL_X[2], PANEL_LABEL_Y, z],
+      [panelOrigin(2, this.aspect)[0], panelLabelY(2, this.aspect), z],
       alpha * agreeIn * 0.95,
       { kind: 'tag' },
     );
 
     if (sumT <= 0.004) return;
 
+    const sx = sumOriginX(this.aspect);
     const agreementSum = f.pre - f.bias;
     const scale = SUM_MAX_WIDTH / Math.max(Math.abs(agreementSum), Math.abs(f.pre), 1e-3);
 
     // Zero line: the thing the total is about to be compared against.
-    r.sprite([0, SUM_Y, z - 0.02], [0.016, 0.62], CHROME, alpha * 0.55, {
+    r.sprite([sx, sumY(this.aspect), z - 0.02], [0.016, 0.62], CHROME, alpha * 0.55, {
       mode: SPRITE_BAR,
       radius: 0.008,
       softness: 0.008,
@@ -1211,7 +1278,7 @@ export class Scene {
     // All 784 agreements, added up.
     const sumWidth = agreementSum * scale * sumT;
     r.sprite(
-      [sumWidth / 2, SUM_Y, z],
+      [sx + sumWidth / 2, sumY(this.aspect), z],
       [Math.abs(sumWidth) + 0.02, 0.17],
       agreementSum >= 0 ? POS : NEG,
       alpha,
@@ -1227,7 +1294,7 @@ export class Scene {
     this.label(
       's5.sumLabel',
       'add all 784 of them up',
-      [0, SUM_Y + 0.62, z],
+      [sx, sumY(this.aspect) + 0.62, z],
       alpha * sumT * clamp01(1 - gate * 3) * 0.95,
       { kind: 'tag' },
     );
@@ -1236,7 +1303,7 @@ export class Scene {
     const biasWidth = f.bias * scale * gate;
     if (Math.abs(biasWidth) > 0.004) {
       r.sprite(
-        [sumWidth + biasWidth / 2, SUM_Y, z + 0.01],
+        [sx + sumWidth + biasWidth / 2, sumY(this.aspect), z + 0.01],
         [Math.abs(biasWidth) + 0.02, 0.17],
         ACCENT,
         alpha * 0.95,
@@ -1251,14 +1318,14 @@ export class Scene {
         fires
           ? `${f.pre.toFixed(1)} is above zero, so this unit fires`
           : `${f.pre.toFixed(1)} is below zero, so ReLU silences it`,
-        [0, SUM_Y + 0.62, z],
+        [sx, sumY(this.aspect) + 0.62, z],
         alpha * clamp01((gate - 0.45) / 0.55) * 0.95,
         { kind: 'tag' },
       );
       this.label(
         's5.biasLabel',
         'plus its own bias',
-        [sumWidth + biasWidth / 2, SUM_Y - 0.5, z],
+        [sx + sumWidth + biasWidth / 2, sumY(this.aspect) - 0.5, z],
         alpha * gate * 0.85,
         { kind: 'value' },
       );
@@ -1284,9 +1351,10 @@ export class Scene {
     // The budget: one unit of certainty, drawn as a container that the shares fill.
     const budget = v['s6.budget'] ?? 0;
     if (budget > 0.002) {
+      const box = budgetBox(this.aspect);
       r.sprite(
-        [0, BAR_BASE_Y + BAR_MAX_HEIGHT * 0.5, z - 0.05],
-        [CLASSES * 1.02 + 0.35, BAR_MAX_HEIGHT + 0.3],
+        [box.centre[0], box.centre[1], z - 0.05],
+        box.size,
         CHROME,
         budget * 0.32 * fade,
         { mode: SPRITE_RING, radius: 0.12, softness: 0.014, intensity: 0.8 },
@@ -1294,7 +1362,8 @@ export class Scene {
     }
 
     // The zero line. Raw scores can be negative, and hiding that would be a lie.
-    r.sprite([0, BAR_BASE_Y, z - 0.04], [CLASSES * 1.02 + 0.2, 0.012], CHROME, show * 0.5 * fade, {
+    const axis = barAxis(this.aspect);
+    r.sprite([axis.centre[0], axis.centre[1], z - 0.04], axis.size, CHROME, show * 0.5 * fade, {
       mode: SPRITE_BAR,
       radius: 0.006,
       softness: 0.006,
@@ -1316,12 +1385,16 @@ export class Scene {
       const opacity = show * fade * lerp(1, isWinner ? 1 : 0.32, lockAmount);
 
       const colour = isWinner ? ACCENT : h >= 0 ? POS : NEG;
-      const height = Math.abs(h) + 0.02;
-      const centreY = BAR_BASE_Y + h / 2;
+      // Placement is the only thing that differs between the two orientations; every
+      // value above is computed once and reads the same either way.
+      const bar = barPlacement(c, h, this.aspect);
+      const thicken = lerp(1, 1.18, emphasise);
 
       r.sprite(
-        [barX(c), centreY, z],
-        [BAR_WIDTH * lerp(1, 1.18, emphasise), height],
+        [bar.centre[0], bar.centre[1], z],
+        this.portrait
+          ? [bar.size[0], bar.size[1] * thicken]
+          : [bar.size[0] * thicken, bar.size[1]],
         colour,
         opacity,
         {
@@ -1345,8 +1418,7 @@ export class Scene {
       // rounded cap, so its lit area reaches roughly a third of a unit past its geometry,
       // and the winner's bar is the brightest thing on screen — at 0.34 the winning digit
       // sits in its own bar's halo and turns to silhouette.
-      const digitY = h >= 0 ? BAR_BASE_Y - 0.52 : BAR_BASE_Y + 0.52;
-      this.label(`s6.d${c}`, String(c), [barX(c), digitY, z], show * fade * 0.85, {
+      this.label(`s6.d${c}`, String(c), [bar.digit[0], bar.digit[1], z], show * fade * 0.85, {
         kind: 'value',
       });
 
@@ -1368,11 +1440,10 @@ export class Scene {
         // using. The two can never meet: they sit on opposite sides of the axis whenever
         // the bar is short, and a full bar's length apart whenever it is long. Same 0.5
         // clearance as the digit row, for the same reason — the winner's bar blooms.
-        const valueY = BAR_BASE_Y + h + (h >= 0 ? 0.5 : -0.5);
         this.label(
           `s6.v${c}`,
           text,
-          [barX(c), valueY, z],
+          [bar.value[0], bar.value[1], z],
           strength * fade * (isWinner ? 1 : 0.72),
           { kind: 'value' },
         );
@@ -1391,21 +1462,21 @@ export class Scene {
     this.label(
       's6.readRaw',
       'raw score',
-      [0, BAR_MAX_HEIGHT + 0.4, z],
+      [readingAnchor(this.aspect)[0], readingAnchor(this.aspect)[1], z],
       show * clamp01(1 - exp * 3) * fade * 0.9,
       { kind: 'tag' },
     );
     this.label(
       's6.readExp',
       'exponentiate: the gaps stretch',
-      [0, BAR_MAX_HEIGHT + 0.4, z],
+      [readingAnchor(this.aspect)[0], readingAnchor(this.aspect)[1], z],
       clamp01((exp - 0.45) / 0.55) * clamp01(1 - norm * 3) * fade * 0.9,
       { kind: 'tag' },
     );
     this.label(
       's6.readNorm',
       'one unit of certainty, split ten ways',
-      [0, BAR_MAX_HEIGHT + 0.4, z],
+      [readingAnchor(this.aspect)[0], readingAnchor(this.aspect)[1], z],
       clamp01((norm - 0.45) / 0.55) * fade * 0.9,
       { kind: 'tag' },
     );

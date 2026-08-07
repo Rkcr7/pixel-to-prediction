@@ -63,7 +63,17 @@ export function stationFrames(aspect: number): StationFrame[] {
       margin: 1.14,
       centerY: 0,
     },
-    { z: Z.dense, width: 12.2, height: 7.4, margin: 1.12, centerY: 0 },
+    // The dense station turns through ninety degrees in portrait, and the frame has to
+    // cover both of its beats: the stacked dot-product panels (3.1 wide, 12.7 tall
+    // including headings) and the pooled-features / lattice / candidates column.
+    // Width is what actually solves this one in portrait, not height: at 0.48 aspect a
+    // 5.2-wide frame gives only twelve units of visible height for a panel stack that
+    // spans nearly thirteen, so the top heading was cut off above the frame. The width
+    // here is set by stage 6's rows, which reach from the prototype column at -2.8 to a
+    // full-length bar's reading at +3.4, and it buys the height the stack needs.
+    portrait
+      ? { z: Z.dense, width: 7.0, height: 10.9, margin: 1.04, centerY: -0.5 }
+      : { z: Z.dense, width: 12.2, height: 7.4, margin: 1.12, centerY: 0 },
     { z: Z.answer, width: 4.8, height: 4.8, margin: 1.35, centerY: 0 },
   ];
 }
@@ -79,16 +89,35 @@ export function stationFrames(aspect: number): StationFrame[] {
  * On desktop the panel is on the left, so the reserve is horizontal. In portrait it moves
  * to the bottom, so the reserve is vertical instead.
  */
-export function safeArea(aspect: number): { width: number; height: number } {
-  // Deliberately gentle. A full reserve for the panel's whole width would clear it
-  // completely but shrink every stage by a third, which costs more than the overlap did.
-  return isPortrait(aspect) ? { width: 0.95, height: 0.72 } : { width: 0.8, height: 0.92 };
+export function safeArea(aspect: number): {
+  width: number;
+  height: number;
+  /** Centre of the usable band, as a fraction of the viewport from the top. */
+  centerY: number;
+} {
+  // Portrait has chrome at BOTH ends, and the band between them is not centred.
+  //
+  // Measured on a 390x806 viewport: the topbar ends at 68 and the story panel starts at
+  // 601, so the usable band is 0.661 of the height with its centre at 0.415. Describing
+  // it as a single centred fraction, which is what this used to return, put the content
+  // at 0.36 and ran the panel headings under the brand in the topbar.
+  //
+  // Landscape keeps a centred band; its reserve is horizontal.
+  return isPortrait(aspect)
+    ? { width: 0.95, height: 0.66, centerY: 0.415 }
+    : { width: 0.8, height: 0.92, centerY: 0.5 };
 }
 
-/** Distance at which a box of `width` x `height` fits the usable part of the frame. */
-export function fitDistance(frame: StationFrame, aspect: number): number {
+/**
+ * Distance at which a box of `width` x `height` fits the usable part of the frame.
+ *
+ * `aspect` is the real frustum aspect and decides the horizontal fit. `layoutAspect`
+ * decides which reserve applies, and is the value that agrees with the stylesheet about
+ * where the story panel sits; the two differ in a near-square or small landscape window.
+ */
+export function fitDistance(frame: StationFrame, aspect: number, layoutAspect = aspect): number {
   const t = Math.tan(FOV / 2);
-  const safe = safeArea(aspect);
+  const safe = safeArea(layoutAspect);
   const byHeight = (frame.height * frame.margin) / safe.height / 2 / t;
   const byWidth =
     (frame.width * frame.margin) / safe.width / 2 / (t * Math.max(aspect, 0.2));
@@ -128,7 +157,14 @@ export const conv2Grid = (aspect: number): GridSpec =>
 /** Landscape shapes, kept for the places that only need nominal sizes. */
 export const CONV1_GRID = CONV1_LANDSCAPE;
 export const CONV2_GRID = CONV2_LANDSCAPE;
-export const POOL2_GRID: GridSpec = { cols: 4, rows: 4, cell: 1.06, plate: 0.98 };
+const POOL2_GRID_LANDSCAPE: GridSpec = { cols: 4, rows: 4, cell: 1.06, plate: 0.98 };
+// Smaller in portrait: it sits above the lattice rather than beside it, so its height is
+// competing with everything below it.
+const POOL2_GRID_PORTRAIT: GridSpec = { cols: 4, rows: 4, cell: 0.68, plate: 0.63 };
+export function pool2Grid(aspect: number): GridSpec {
+  return isPortrait(aspect) ? POOL2_GRID_PORTRAIT : POOL2_GRID_LANDSCAPE;
+}
+export const POOL2_GRID = POOL2_GRID_LANDSCAPE;
 
 /** Centre of cell `i` in a grid, laid out row-major and centred on the origin. */
 export function gridCell(spec: GridSpec, i: number, z: number): Vec3 {
@@ -166,21 +202,52 @@ export function kernelSlot(i: number, count: number, z: number, aspect: number):
 
 // -- Stage 5: hidden units and class candidates ------------------------------
 
-export const HIDDEN_COLS = 4;
-export const HIDDEN_ROWS = 8;
+/*
+ * The dense station has two shapes.
+ *
+ * In landscape it reads left to right: pooled features, then the hidden units, then the
+ * candidates, with the three dot-product panels side by side. All of that is about twelve
+ * world units wide against roughly seven tall.
+ *
+ * On a phone that is exactly backwards. A 390x806 viewport is 0.48 aspect, so fitting
+ * twelve units of width means the camera solves to a visible height of about thirty for
+ * content five units tall: the whole station shrinks into a thin band with two thirds of
+ * the screen empty, and the three panel headings, which are fixed-size DOM text, run into
+ * each other and off the left edge.
+ *
+ * So portrait turns the station through ninety degrees. The same objects, stacked down
+ * the screen instead of across it, sized to the axis that actually has room.
+ */
+
 export const HIDDEN_X = -0.35;
 
-export function hiddenSlot(i: number, z: number): Vec3 {
-  const col = i % HIDDEN_COLS;
-  const row = Math.floor(i / HIDDEN_COLS);
-  return [
-    HIDDEN_X + (col - (HIDDEN_COLS - 1) / 2) * 0.46,
-    -(row - (HIDDEN_ROWS - 1) / 2) * 0.58,
-    z,
-  ];
+export function hiddenGrid(): { cols: number; rows: number } {
+  // Four by eight in both orientations. A wide-and-short lattice was the obvious portrait
+  // move and it was wrong: it forces the candidates underneath, and three groups stacked
+  // vertically do not fit between the topbar and the story panel. Keeping the lattice
+  // narrow lets it sit beside the candidates instead, which is what the horizontal axis
+  // is free for.
+  return { cols: 4, rows: 8 };
+}
+
+/** Centre of the lattice block. */
+export function hiddenOrigin(aspect: number): [number, number] {
+  return isPortrait(aspect) ? [-1.4, -1.2] : [HIDDEN_X, 0];
+}
+
+export function hiddenSlot(i: number, z: number, aspect: number): Vec3 {
+  const { cols, rows } = hiddenGrid();
+  const col = i % cols;
+  const row = Math.floor(i / cols);
+  const [ox, oy] = hiddenOrigin(aspect);
+  return [ox + (col - (cols - 1) / 2) * 0.46, oy - (row - (rows - 1) / 2) * 0.58, z];
 }
 
 export const POOL2_BLOCK_X = -4.3;
+
+export function pool2Origin(aspect: number): [number, number] {
+  return isPortrait(aspect) ? [0, 3.3] : [POOL2_BLOCK_X, 0];
+}
 
 // -- The dense layer, drawn as a dot product ---------------------------------
 
@@ -193,44 +260,112 @@ export const POOL2_BLOCK_X = -4.3;
  * drawn rather than asserted, and it is the only reason a dense layer can be made
  * legible at all.
  */
-export const PANEL_GRID: GridSpec = { cols: 4, rows: 4, cell: 0.78, plate: 0.72 };
+const PANEL_GRID_LANDSCAPE: GridSpec = { cols: 4, rows: 4, cell: 0.78, plate: 0.72 };
+/**
+ * Slightly smaller in portrait, because three of them stack.
+ *
+ * At the landscape size the stack spanned 0.734 of the viewport against a usable band of
+ * 0.69, so the first heading sat above the topbar and the running total below the story
+ * panel. Eleven percent off the cell buys exactly the room needed and the 7x7 maps are
+ * still legible at it.
+ */
+const PANEL_GRID_PORTRAIT: GridSpec = { cols: 4, rows: 4, cell: 0.68, plate: 0.63 };
+
+export function panelGrid(aspect: number): GridSpec {
+  return isPortrait(aspect) ? PANEL_GRID_PORTRAIT : PANEL_GRID_LANDSCAPE;
+}
+
+/** Landscape shape, for the places that only need nominal sizes. */
+export const PANEL_GRID = PANEL_GRID_LANDSCAPE;
 export const PANEL_X = [-3.6, 0, 3.6] as const;
 /** The panels sit above centre so the running total below them has room. */
 export const PANEL_Y = 0.5;
-// Clear of the panel tops, which reach PANEL_Y + 1.56 + half a plate.
-export const PANEL_LABEL_Y = PANEL_Y + 2.32;
-/** Where the agreement collapses to a single running total. */
-export const SUM_Y = -2.1;
-export const SUM_MAX_WIDTH = 3.4;
+/**
+ * Portrait stacks the three panels down the screen.
+ *
+ * Pitch is 3.45: a panel is 3.12 tall and its heading takes the rest. Side by side they
+ * would be 390px apart on a 390px screen, so all three headings collide and the first
+ * runs off the left edge.
+ *
+ * The pitch is what it is because the stack has to fit between the top of the frame and
+ * the top of the story panel, measured at 0.746 of the viewport on a 390x806 screen. At
+ * 3.9 the first heading projected to -0.038, above the frame, and the running total to
+ * 0.753, underneath the panel.
+ */
+const PANEL_Y_PORTRAIT = [3.05, 0, -3.05] as const;
 
-export function panelSlot(panel: number, i: number, z: number): Vec3 {
-  const c = gridCell(PANEL_GRID, i, z);
-  return [c[0] + PANEL_X[panel], c[1] + PANEL_Y, c[2]];
+/** Centre of a panel, in whichever arrangement is in play. */
+export function panelOrigin(panel: number, aspect: number): [number, number] {
+  return isPortrait(aspect) ? [0, PANEL_Y_PORTRAIT[panel]] : [PANEL_X[panel], PANEL_Y];
 }
 
-export function pool2Slot(i: number, z: number): Vec3 {
-  const c = gridCell(POOL2_GRID, i, z);
-  return [c[0] + POOL2_BLOCK_X, c[1], c[2]];
+// Clear of the panel top, which reaches its origin + 1.56 + half a plate.
+export function panelLabelY(panel: number, aspect: number): number {
+  return panelOrigin(panel, aspect)[1] + (isPortrait(aspect) ? 1.58 : 1.82);
+}
+
+/** Where the agreement collapses to a single running total. */
+export function sumY(aspect: number): number {
+  // Below the lowest panel in each arrangement.
+  return isPortrait(aspect) ? -5.15 : -2.1;
+}
+export const SUM_MAX_WIDTH = 3.4;
+
+/**
+ * Where the running total starts.
+ *
+ * Zero in landscape, because the bar growing rightwards from a zero line under the middle
+ * panel is the picture. In portrait the panels are a centred column, so a bar starting at
+ * zero would hang off their right-hand side and out of frame; it starts half a span left
+ * instead, which keeps the same reading and stays under the stack.
+ */
+export function sumOriginX(aspect: number): number {
+  return isPortrait(aspect) ? -SUM_MAX_WIDTH / 2 : 0;
+}
+
+export function panelSlot(panel: number, i: number, z: number, aspect: number): Vec3 {
+  const c = gridCell(panelGrid(aspect), i, z);
+  const [ox, oy] = panelOrigin(panel, aspect);
+  return [c[0] + ox, c[1] + oy, c[2]];
+}
+
+export function pool2Slot(i: number, z: number, aspect: number): Vec3 {
+  const c = gridCell(pool2Grid(aspect), i, z);
+  const [ox, oy] = pool2Origin(aspect);
+  return [c[0] + ox, c[1] + oy, c[2]];
 }
 
 export const CANDIDATE_X = 4.05;
 
+/** Where the column of candidate digits sits, and how far apart they are. */
+export function candidateLayout(aspect: number): { x: number; pitch: number } {
+  // Tighter and centred in portrait: ten at the landscape pitch is 6.9 units tall, which
+  // does not fit under a lattice that has already used the vertical axis.
+  return isPortrait(aspect) ? { x: 1.65, pitch: 0.46 } : { x: CANDIDATE_X, pitch: 0.685 };
+}
+
 /** Zero line of the for/against meter that sits beside each candidate. */
-export const RAIL_AXIS_X = CANDIDATE_X - 1.42;
+export function railAxisX(aspect: number): number {
+  return candidateLayout(aspect).x - (isPortrait(aspect) ? 0.95 : 1.42);
+}
 
 /**
  * The line the station's explanatory tags sit on.
  *
- * Below the lowest candidate rail (y = -3.23) and still comfortably inside the frame:
- * the dense station is framed on its width, so the visible half-height is about 4.5 world
- * units against content that stops at 3.2. Putting the text here instead of beside what
- * it describes is what keeps it off the rails without pulling the camera back.
+ * Below the lowest candidate rail and still inside the frame. In landscape the station is
+ * framed on its width, which leaves the visible half-height at about 4.5 against content
+ * that stops at 3.2; portrait is framed on its height, so the line has to sit under a
+ * taller stack.
  */
-export const FLOOR_LABEL_Y = -3.85;
+export function floorLabelY(aspect: number): number {
+  return isPortrait(aspect) ? -4.25 : -3.85;
+}
 
 /** The ten candidate digits, stacked vertically while the network is deciding. */
-export function candidateSlot(digit: number, z: number): Vec3 {
-  return [CANDIDATE_X, -(digit - 4.5) * 0.685, z];
+export function candidateSlot(digit: number, z: number, aspect: number): Vec3 {
+  const { x, pitch } = candidateLayout(aspect);
+  const y = -(digit - 4.5) * pitch;
+  return [x, isPortrait(aspect) ? y - 1.05 : y, z];
 }
 
 // -- Stage 6: the bars -------------------------------------------------------
@@ -244,6 +379,100 @@ export const BAR_BASE_Y = -1.55;
 export function barX(digit: number): number {
   return (digit - 4.5) * BAR_SPACING;
 }
+
+/*
+ * Portrait turns the chart on its side.
+ *
+ * Ten categories across a 390px screen is 39 CSS pixels a column, and the value labels
+ * are numbers like "-21.5" that measure about 34. They cannot not collide, at any type
+ * size that is still readable. Rows put the ten categories on the axis that has room and
+ * leave a whole column free for the digit and another for its value, which is the
+ * ordinary responsive treatment for a bar chart and reads better than the landscape one
+ * on a phone.
+ */
+const ROW_PITCH = 0.95;
+const ROW_THICK = 0.56;
+const ROW_AXIS_X = 0.55;
+const ROW_MAX_LEN = 2.25;
+/** The prototype glyph and the numeral each get their own column, left of the axis. */
+export const ROW_PROTO_X = ROW_AXIS_X - 3.35;
+const ROW_DIGIT_X = ROW_AXIS_X - 2.35;
+
+export interface BarPlacement {
+  centre: [number, number];
+  size: [number, number];
+  digit: [number, number];
+  value: [number, number];
+  /** Full-scale length, for normalising intensity the same way in both orientations. */
+  span: number;
+}
+
+/**
+ * Where one class's bar, its numeral and its reading sit.
+ *
+ * `h` is the signed magnitude on the landscape scale, so every caller keeps computing the
+ * same number and only the placement changes.
+ */
+export function barPlacement(digit: number, h: number, aspect: number): BarPlacement {
+  if (!isPortrait(aspect)) {
+    return {
+      centre: [barX(digit), BAR_BASE_Y + h / 2],
+      size: [BAR_WIDTH, Math.abs(h) + 0.02],
+      // Diverging bars, so the numeral takes whichever side of the axis its own bar is
+      // not using. 0.52 rather than 0.34 because a bar is a bloomed sprite and the
+      // winner is the brightest thing on screen.
+      digit: [barX(digit), BAR_BASE_Y + (h >= 0 ? -0.52 : 0.52)],
+      value: [barX(digit), BAR_BASE_Y + h + (h >= 0 ? 0.5 : -0.5)],
+      span: BAR_MAX_HEIGHT,
+    };
+  }
+
+  const len = (h / BAR_MAX_HEIGHT) * ROW_MAX_LEN;
+  const y = -(digit - 4.5) * ROW_PITCH;
+  return {
+    centre: [ROW_AXIS_X + len / 2, y],
+    size: [Math.abs(len) + 0.02, ROW_THICK],
+    // A fixed column, because in rows there is no "free side" to alternate onto: the
+    // numeral would otherwise land on its neighbour's bar.
+    digit: [ROW_DIGIT_X, y],
+    value: [ROW_AXIS_X + len + (len >= 0 ? 0.52 : -0.52), y],
+    span: ROW_MAX_LEN,
+  };
+}
+
+/** The zero line the bars diverge from, and how long it runs. */
+export function barAxis(aspect: number): { centre: [number, number]; size: [number, number] } {
+  return isPortrait(aspect)
+    ? { centre: [ROW_AXIS_X, 0], size: [0.012, CLASSES_SPAN * ROW_PITCH + 0.6] }
+    : { centre: [0, BAR_BASE_Y], size: [CLASSES_SPAN * BAR_SPACING + 0.2, 0.012] };
+}
+
+/** The container softmax divides: one unit of certainty, drawn as an object. */
+export function budgetBox(aspect: number): { centre: [number, number]; size: [number, number] } {
+  return isPortrait(aspect)
+    ? {
+        centre: [ROW_AXIS_X + ROW_MAX_LEN * 0.5, 0],
+        size: [ROW_MAX_LEN + 0.35, CLASSES_SPAN * ROW_PITCH + 0.75],
+      }
+    : {
+        centre: [0, BAR_BASE_Y + BAR_MAX_HEIGHT * 0.5],
+        size: [CLASSES_SPAN * BAR_SPACING + 0.35, BAR_MAX_HEIGHT + 0.3],
+      };
+}
+
+/** Where the "raw score / exponentiate / one unit" reading sits. */
+export function readingAnchor(aspect: number): [number, number] {
+  return isPortrait(aspect) ? [ROW_AXIS_X - 0.6, CLASSES_SPAN * ROW_PITCH * 0.5 + 0.45] : [0, BAR_MAX_HEIGHT + 0.4];
+}
+
+/** Where a candidate prototype flies to when the bars gather. */
+export function protoTarget(digit: number, aspect: number): [number, number] {
+  return isPortrait(aspect)
+    ? [ROW_PROTO_X, -(digit - 4.5) * ROW_PITCH]
+    : [barX(digit), BAR_BASE_Y + BAR_MAX_HEIGHT + 1.3];
+}
+
+const CLASSES_SPAN = 10;
 
 /** Linear interpolation between two positions. */
 export function mixVec(a: Vec3, b: Vec3, t: number): Vec3 {
