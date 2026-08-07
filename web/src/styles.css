@@ -129,7 +129,9 @@ body {
   z-index: 2;
   height: 100%;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  /* minmax(0, 1fr) rather than 1fr: a bare fr track refuses to shrink below its content,
+     which is what let the compose section overflow a short window. */
+  grid-template-rows: auto minmax(0, 1fr);
   pointer-events: none;
 }
 
@@ -263,6 +265,47 @@ body:not([data-mode='loading']) .boot {
 .icon-btn[aria-pressed='false'] {
   color: var(--text-faint);
   opacity: 0.55;
+}
+
+/*
+ * The source link carries the GitHub mark and a word, so it reads as a destination rather
+ * than as a fourth unexplained glyph in a row of icons.
+ */
+.icon-btn--wide {
+  width: auto;
+  grid-auto-flow: column;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  color: var(--text-dim);
+}
+
+.icon-btn__glyph {
+  display: block;
+  flex: none;
+}
+
+.icon-btn__label {
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .icon-btn--wide:hover {
+    color: var(--text);
+  }
+}
+
+/* The mark alone is unambiguous, and a narrow topbar has no room for the word. */
+@media (max-width: 560px) {
+  .icon-btn__label {
+    display: none;
+  }
+  .icon-btn--wide {
+    width: 32px;
+    padding: 0;
+  }
 }
 
 /* --------------------------------------------------------------- compose */
@@ -667,7 +710,24 @@ body:not([data-mode='loading']) .boot {
    It is chrome over a picture that is the entire point, so it stays only while the
    viewer is actually reaching for it, and a two-pixel rail carries the position the rest
    of the time. */
+/*
+ * Pinned to the bottom, not placed in the grid.
+ *
+ * It used to be the third row of `auto 1fr auto`, and a 1fr track carries an implicit
+ * min-height: auto, so the middle row never shrank below its content. The compose section
+ * lives in that row and keeps its full height even while it is hidden during a run, so on
+ * a short viewport the pad plus its title and buttons overflowed and pushed the transport
+ * clean off the bottom of the screen: the play and skip controls were cut in half.
+ *
+ * It only ever appears over a finished or playing scene, and it hides itself when idle, so
+ * it belongs in the overlay layer with the progress rail rather than in the document flow.
+ */
 .transport {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
   display: flex;
   align-items: center;
   gap: 10px;
