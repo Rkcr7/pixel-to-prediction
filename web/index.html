@@ -107,14 +107,21 @@
       <section class="compose" id="compose" aria-label="Draw a digit">
         <div class="compose__inner">
           <h1 class="compose__title">Draw a digit.</h1>
+          <!--
+            "One" and the range are both stated, because the network has exactly ten
+            outputs and no notion of where one digit ends and the next begins. Given "42"
+            it does not fail, it confidently answers with a single class, and nothing on
+            screen would look wrong.
+          -->
           <p class="compose__sub">
-            Then watch a real convolutional network take it apart, one layer at a time.
+            Just one, anything from <strong>0 to 9</strong>. Then watch a real convolutional
+            network take it apart, one layer at a time.
           </p>
 
           <div class="pad">
             <canvas id="pad" class="pad__canvas" aria-label="Drawing area"></canvas>
             <div class="pad__hint" id="padHint">
-              <span>Draw here</span>
+              <span>Draw one digit</span>
             </div>
             <div class="pad__guides" aria-hidden="true"></div>
           </div>

@@ -13,6 +13,7 @@ import { Scene } from './scene/scene';
 import { DrawSurface } from './ui/draw';
 import { explain, formatConfidence, verdict } from './ui/copy';
 import { AnnotationLayer } from './ui/annotations';
+import { FrameCompositor } from './ui/compositor';
 
 type Mode = 'loading' | 'compose' | 'reveal' | 'result';
 
@@ -47,6 +48,14 @@ class App {
    */
   private fooling: { from: number; to: number } | null = null;
   private recorder: MediaRecorder | null = null;
+  /**
+   * The recorded frame, scene and text together.
+   *
+   * Only painted while a recording is running: it is a full extra canvas blit plus text
+   * every frame, and nothing watches it the rest of the time.
+   */
+  private compositor = new FrameCompositor();
+  private recording = false;
   private reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   async boot() {
@@ -289,7 +298,17 @@ class App {
   }
 
   private async startRun() {
-    await this.audio.ensure();
+    // Never let the audio gate hold the run.
+    //
+    // `ensure` resumes an AudioContext, which needs a user gesture. With one it settles
+    // immediately; without one it can simply never settle, and since `reveal` only clears
+    // its re-entrancy guard in a finally block, a hung resume would wedge the button for
+    // the rest of the session with nothing on screen to explain it. Silence is a far
+    // smaller failure than an app that stops responding.
+    await Promise.race([
+      this.audio.ensure(),
+      new Promise<void>((resolve) => setTimeout(resolve, 1200)),
+    ]);
     this.audio.startPad();
     this.audio.fadePad(0.13);
 
@@ -437,7 +456,15 @@ class App {
       return;
     }
 
-    const stream = canvas.captureStream(60);
+    // Capture the composited frame, not the raw scene.
+    //
+    // captureStream() captures one canvas and nothing else, and every word in this app is
+    // DOM layered over the WebGL canvas. Recording the scene canvas produced a clip of
+    // shapes moving with no annotation, no caption and no answer attached to any of it,
+    // which is most of what the piece is for.
+    this.compositor.sync(canvas, window.innerWidth);
+    this.recording = true;
+    const stream = this.compositor.canvas.captureStream(60);
     const audioStream = this.audio.captureStream();
     if (audioStream) for (const track of audioStream.getAudioTracks()) stream.addTrack(track);
 
@@ -482,6 +509,7 @@ class App {
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
       this.recorder = null;
+      this.recording = false;
       this.scene.parallaxEnabled = true;
       this.toast('Clip saved');
     };
@@ -492,15 +520,26 @@ class App {
     this.scene.parallax = [0, 0];
     this.recorder = recorder;
     recorder.start();
-    this.toast('Recording…');
 
+    // Twice speed, and the clip really is twice as fast.
+    //
+    // MediaRecorder timestamps frames by the wall clock they arrive on, so there is no way
+    // to push 1,700 rendered frames at it faster than real time and get a correctly timed
+    // video: the clip would collapse to almost no duration. Encoding offline would mean
+    // WebCodecs and a container muxer. Playing the timeline faster is the honest version
+    // of the same wish, and it costs a minute of waiting rather than a dependency.
+    //
+    // It also makes a better clip. 57 seconds is long for a feed, 29 is not, and anyone
+    // who wants to read every caption can open the app and watch it at 1x.
+    const speed = Math.max(2, this.player.speed);
+    this.player.speed = speed;
+    this.speedIndex = SPEEDS.indexOf(speed) >= 0 ? SPEEDS.indexOf(speed) : this.speedIndex;
+    $('speedBtn').textContent = `${speed}×`;
     this.setMode('reveal');
-    this.player.speed = 1;
-    this.speedIndex = 1;
-    $('speedBtn').textContent = '1×';
     this.player.restart();
 
-    const total = this.score.timeline.duration * 1000 + 1400;
+    const total = (this.score.timeline.duration / speed) * 1000 + 1400;
+    this.toast(`Recording ${Math.round(total / 1000)}s at ${speed}×…`);
     setTimeout(() => {
       if (recorder.state !== 'inactive') recorder.stop();
     }, total);
@@ -628,7 +667,53 @@ class App {
       this.scene.draw(this.sampled, now / 1000, frameMs);
       this.annotations.clear();
     }
+
+    // In the same task as the GL draw. The context has no preserved drawing buffer, so
+    // copying it after the browser composites would read back transparent black.
+    if (this.recording) this.paintRecordedFrame();
   };
+
+  /**
+   * Compose one frame for the recorder: the scene, then the words over it.
+   *
+   * The text is read from the DOM the app has already filled in rather than rebuilt from
+   * the run, so the clip cannot disagree with what the viewer is looking at.
+   */
+  private paintRecordedFrame() {
+    const stage = $<HTMLCanvasElement>('stage');
+    this.compositor.sync(stage, window.innerWidth);
+
+    const box = (id: string) => {
+      const b = $(id).getBoundingClientRect();
+      return { left: b.left, top: b.top, width: b.width };
+    };
+
+    const caption =
+      this.mode === 'reveal'
+        ? {
+            step: $('storyStep').textContent ?? '',
+            title: $('storyTitle').textContent ?? '',
+            caption: $('storyCaption').textContent ?? '',
+            rect: box('story'),
+          }
+        : null;
+
+    const fool = $('resultFool');
+    const answer =
+      this.mode === 'result'
+        ? {
+            digit: $('resultDigit').textContent ?? '',
+            confidence: $('resultPct').textContent ?? '',
+            phrase: $('resultPhrase').textContent ?? '',
+            reason: $('resultReason').textContent ?? '',
+            counter: $('resultCounter').textContent ?? '',
+            fool: fool.hidden ? '' : (fool.textContent ?? ''),
+            rect: box('result'),
+          }
+        : null;
+
+    this.compositor.paint(stage, this.scene.labels, caption, answer, this.scene.stacked);
+  }
 
   private lastStageKey = '';
   private lastCaption = '';

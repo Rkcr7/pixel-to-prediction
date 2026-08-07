@@ -149,6 +149,11 @@ export class Scene {
   /** Layout resolved for the current viewport shape, refreshed once per frame. */
   private aspect = 1.78;
   private portrait = false;
+
+  /** Whether the layout is in its stacked arrangement, for anything drawing over it. */
+  get stacked(): boolean {
+    return this.portrait;
+  }
   private frames: StationFrame[] = stationFrames(1.78);
   private conv1: GridSpec = conv1Grid(1.78);
   private conv2: GridSpec = conv2Grid(1.78);
