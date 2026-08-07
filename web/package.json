@@ -1,0 +1,17 @@
+{
+  "name": "pixel-to-prediction",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Watch how a neural network actually sees a digit.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11"
+  }
+}

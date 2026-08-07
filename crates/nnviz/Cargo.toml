@@ -1,0 +1,23 @@
+[package]
+name = "nnviz"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.114"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rayon = "1.10"
+
+[[bin]]
+name = "train"
+path = "src/bin/train.rs"
+required-features = []
+
+[features]
+default = []

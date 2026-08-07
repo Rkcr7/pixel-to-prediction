@@ -1,0 +1,8 @@
+node_modules/
+dist/
+data/
+target/
+.frames/
+web/src/wasm/
+_test/
+scripts/train.log

@@ -1,0 +1,6 @@
+{
+  "test_accuracy": 0.9946,
+  "params": 26826,
+  "epochs": 32,
+  "seed": 1234
+}

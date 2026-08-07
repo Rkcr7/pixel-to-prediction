@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The gradient checks are the point of this job. If backward is wrong, every
+      # explanation the app shows a user is confidently false and nothing looks broken.
+      - name: Rust tests
+        run: cargo test --lib
+
+      - name: Rust format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --lib --all-targets -- -D warnings
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build WASM
+        working-directory: crates/nnviz
+        run: wasm-pack build --target web --out-dir ../../web/src/wasm --release --no-typescript
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm install
+
+      - name: Typecheck
+        working-directory: web
+        run: npx tsc --noEmit
+
+      - name: Build
+        working-directory: web
+        run: npx vite build
+
+      - name: Report bundle size
+        working-directory: web
+        run: |
+          echo "### Transfer size" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          find dist -type f \( -name '*.js' -o -name '*.wasm' -o -name '*.css' -o -name '*.bin' \) \
+            -exec sh -c 'printf "%8s  %s\n" "$(gzip -c "$1" | wc -c)" "${1#dist/}"' _ {} \; \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

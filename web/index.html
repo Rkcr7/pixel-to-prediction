@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#05060A" />
+    <title>Pixel to Prediction — watch how a neural network actually sees a digit</title>
+    <meta
+      name="description"
+      content="Draw a digit and watch a real convolutional neural network take it apart, layer by layer, in your browser. Every frame is drawn from live tensors."
+    />
+    <meta property="og:title" content="Pixel to Prediction" />
+    <meta property="og:description" content="Watch how a neural network actually sees a digit." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2305060A'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23F8B33C'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body data-mode="loading">
+    <canvas id="stage" aria-hidden="true"></canvas>
+    <div class="annos" id="annos" aria-hidden="true"></div>
+
+    <div id="boot" class="boot">
+      <div class="boot__mark" aria-hidden="true"></div>
+      <p class="boot__text">Waking the network</p>
+    </div>
+
+    <noscript>
+      <div class="fallback">
+        <h1>Pixel to Prediction</h1>
+        <p>This is a live neural network visualisation. It needs JavaScript to run.</p>
+      </div>
+    </noscript>
+
+    <main id="app" class="app" hidden>
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand__dot" aria-hidden="true"></span>
+          <span class="brand__name">Pixel to Prediction</span>
+        </div>
+        <div class="topbar__right">
+          <span class="badge" id="modelBadge" title="This model runs entirely in your browser"></span>
+          <button class="icon-btn" id="soundBtn" type="button" aria-pressed="true" title="Sound">
+            <span class="icon-btn__on" aria-hidden="true">◍</span>
+            <span class="visually-hidden">Toggle sound</span>
+          </button>
+          <a
+            class="icon-btn"
+            id="repoLink"
+            href="https://github.com/Rkcr7"
+            target="_blank"
+            rel="noopener"
+            title="Source"
+            ><span aria-hidden="true">↗</span><span class="visually-hidden">Source code</span></a
+          >
+        </div>
+      </header>
+
+      <!-- Compose ------------------------------------------------------ -->
+      <section class="compose" id="compose" aria-label="Draw a digit">
+        <div class="compose__inner">
+          <h1 class="compose__title">Draw a digit.</h1>
+          <p class="compose__sub">
+            Then watch a real convolutional network take it apart, one layer at a time.
+          </p>
+
+          <div class="pad">
+            <canvas id="pad" class="pad__canvas" aria-label="Drawing area"></canvas>
+            <div class="pad__hint" id="padHint">
+              <span>Draw here</span>
+            </div>
+            <div class="pad__guides" aria-hidden="true"></div>
+          </div>
+
+          <div class="compose__actions">
+            <button class="btn btn--ghost" id="clearBtn" type="button">Clear</button>
+            <button class="btn btn--ghost" id="undoBtn" type="button">Undo</button>
+            <label class="btn btn--ghost" for="uploadInput">
+              Upload
+              <input id="uploadInput" type="file" accept="image/*" hidden />
+            </label>
+            <button class="btn btn--primary" id="revealBtn" type="button" disabled>
+              Reveal how it sees
+              <span class="btn__arrow" aria-hidden="true">→</span>
+            </button>
+          </div>
+
+          <p class="compose__foot" id="composeFoot"></p>
+        </div>
+      </section>
+
+      <!-- Story -------------------------------------------------------- -->
+      <section class="story" id="story" aria-live="polite">
+        <div class="story__head">
+          <span class="story__step" id="storyStep">1 / 7</span>
+          <h2 class="story__title" id="storyTitle"></h2>
+        </div>
+        <p class="story__caption" id="storyCaption"></p>
+      </section>
+
+      <!-- Result ------------------------------------------------------- -->
+      <section class="result" id="result" aria-live="polite">
+        <div class="result__verdict">
+          <div class="result__digit" id="resultDigit">–</div>
+          <div class="result__meta">
+            <div class="result__confidence"><span id="resultPct">–</span></div>
+            <div class="result__phrase" id="resultPhrase"></div>
+          </div>
+        </div>
+        <p class="result__reason" id="resultReason"></p>
+        <p class="result__counter" id="resultCounter"></p>
+        <div class="dist" id="dist" aria-label="Probability for each digit"></div>
+        <div class="result__actions">
+          <button class="btn btn--primary" id="againBtn" type="button">Try another digit</button>
+          <button class="btn btn--ghost" id="replayBtn" type="button">Watch again</button>
+          <button class="btn btn--ghost" id="shareBtn" type="button">Record clip</button>
+        </div>
+      </section>
+
+      <!-- Transport ---------------------------------------------------- -->
+      <div class="transport" id="transport">
+        <button class="tbtn" id="prevBtn" type="button" title="Previous stage">
+          <span aria-hidden="true">◀◀</span><span class="visually-hidden">Previous stage</span>
+        </button>
+        <button class="tbtn tbtn--play" id="playBtn" type="button" title="Play or pause">
+          <span aria-hidden="true" id="playIcon">❚❚</span><span class="visually-hidden">Play or pause</span>
+        </button>
+        <button class="tbtn" id="nextBtn" type="button" title="Next stage">
+          <span aria-hidden="true">▶▶</span><span class="visually-hidden">Next stage</span>
+        </button>
+
+        <div class="scrub" id="scrub" role="slider" tabindex="0" aria-label="Timeline"
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="scrub__track">
+            <div class="scrub__fill" id="scrubFill"></div>
+            <div class="scrub__marks" id="scrubMarks"></div>
+          </div>
+        </div>
+
+        <button class="tbtn tbtn--text" id="speedBtn" type="button" title="Playback speed">1×</button>
+        <button class="tbtn tbtn--text" id="skipBtn" type="button" title="Skip to the answer">Skip</button>
+      </div>
+
+      <div class="toast" id="toast" role="status"></div>
+    </main>
+
+    <div class="unsupported" id="unsupported" hidden>
+      <h1 id="unsupportedTitle">Something went wrong starting up</h1>
+      <p>
+        The visualisation needs WebGL2 and a little GPU memory. Try a current version of
+        Chrome, Edge, Firefox or Safari.
+      </p>
+    </div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
