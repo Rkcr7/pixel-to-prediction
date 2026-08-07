@@ -529,7 +529,17 @@ export class Scene {
     const visibleHeight = 2 * dist * Math.tan(FOV / 2);
     const shiftX = ((1 - safe.width) / 2) * visibleHeight * aspect;
     const shiftY = ((1 - safe.height) / 2) * visibleHeight;
-    const gutterX = this.portrait ? 0 : -shiftX;
+
+    // Which side the reserve is on, because the chrome swaps sides at the end: the story
+    // panel sits on the left for the whole walkthrough, and then the answer card replaces
+    // it on the right. Holding the left reserve into the last station would push the
+    // answer — the one frame anyone screenshots — into the card that has just appeared
+    // beside it, with the whole left half of the screen empty.
+    //
+    // It crosses through centre during the flight to that station, so the swap reads as
+    // part of a camera move that is happening anyway rather than as a jump.
+    const toAnswer = clamp01(((v['cam.station'] ?? 0) - 3.05) / 0.9);
+    const gutterX = this.portrait ? 0 : -shiftX * (1 - 2 * toAnswer);
     const gutterY = this.portrait ? shiftY : 0;
 
     const px = this.parallaxEnabled ? this.parallax[0] * 0.4 : 0;
@@ -766,7 +776,11 @@ export class Scene {
       const size =
         lerp(3.9, this.conv1.plate, spread) * (isHero ? lerp(1, 4.4 / this.conv1.plate, focus) : 1);
       const sweep = isHero ? (v['s3.sweep'] ?? 1) : spread > 0 ? 1 : 0;
-      const recede = isHero ? 1 : lerp(1, 0.04, focus);
+      // All the way out, not to a 4% floor. That floor was chosen against a ground that
+      // was being gamma-lifted to roughly #3C4152, where it was genuinely invisible;
+      // against the corrected near-black it reads as seven legible ghost digits flanking
+      // the close-up, which is the opposite of what a close-up is for.
+      const recede = isHero ? 1 : 1 - focus;
 
       // Cross-fade to the pooled field: the same map, half the cells. Showing them at
       // the same physical size makes the cell coarsening the only thing that changed,

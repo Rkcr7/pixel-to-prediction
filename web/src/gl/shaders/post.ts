@@ -170,12 +170,18 @@ void main() {
 
   vec3 col = aces(hdr);
 
+  col = pow(max(col, 0.0), vec3(1.0 / 2.2));
+
   // Ground: a cool near-black with a faint centre lift, so bloom has something to sit
   // against and the frame never looks like a flat black rectangle.
+  //
+  // Added after the transfer curve, not before it. uGround comes from a hex code, which
+  // is display-referred by definition, so adding it to linear light and then encoding
+  // expanded it enormously: #05060A is 0.0196, and pow(0.0196 * 2.02, 1/2.2) lands at
+  // 0.234 — the authored near-black reached the screen as roughly #3C4152, a flat slate
+  // fog sitting behind every frame in the piece. Here the hex means what it says.
   float glow = uGroundGlow * (1.0 - smoothstep(0.0, 0.85, length(dir * vec2(uResolution.x / uResolution.y, 1.0))));
   col += uGround * (1.0 + glow * 3.0);
-
-  col = pow(max(col, 0.0), vec3(1.0 / 2.2));
 
   float v = smoothstep(1.05, 0.32, length(dir * vec2(1.15, 1.0)));
   col *= mix(1.0, v, uVignette);
