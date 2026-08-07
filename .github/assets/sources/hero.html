@@ -42,12 +42,9 @@
           #05060a;
       }
 
-      .copy { position: absolute; left: 132px; top: 236px; width: 820px; }
-      .dot {
-        width: 14px; height: 14px; border-radius: 50%;
-        background: var(--accent); box-shadow: 0 0 26px rgba(248, 179, 60, 0.7);
-        margin-bottom: 34px;
-      }
+      .copy { position: absolute; left: 132px; top: 214px; width: 820px; }
+      /* The mark, inline so the banner needs no external asset to render. */
+      .mark { display: block; margin-bottom: 30px; }
       h1 {
         font-size: 92px; font-weight: 600; letter-spacing: -0.025em;
         color: var(--text); line-height: 1.02;
@@ -114,7 +111,15 @@
       <div class="ground clip" data-start="0" data-duration="2" data-track-index="0"></div>
 
       <div class="copy clip" data-start="0" data-duration="2" data-track-index="1">
-        <div class="dot"></div>
+        <svg class="mark" width="52" height="52" viewBox="0 0 64 64" aria-hidden="true">
+          <g fill="#3EC9DA">
+            <rect x="1" y="49" width="14" height="14" rx="3.5" />
+            <rect x="17" y="49" width="14" height="14" rx="3.5" />
+            <rect x="17" y="33" width="14" height="14" rx="3.5" />
+            <rect x="49" y="49" width="14" height="14" rx="3.5" />
+          </g>
+          <rect x="33" y="1" width="14" height="62" rx="4" fill="#F8B33C" />
+        </svg>
         <h1>Pixel to<br />Prediction</h1>
         <p class="sub">
           Draw a digit and watch a real convolutional network take it apart, one layer at a

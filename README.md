@@ -1,8 +1,12 @@
 <div align="center">
 
-![Pixel to Prediction](.github/assets/hero.webp)
+<img src=".github/assets/logo.svg" width="72" height="72" alt="" />
+
+# Pixel to Prediction
 
 **Draw a digit. Watch a real convolutional network take it apart, one layer at a time.**
+
+![](.github/assets/hero.webp)
 
 [![tests](https://img.shields.io/badge/rust%20tests-45%20passing-4FD8E8?style=flat-square&labelColor=05060A)](#the-test-that-actually-matters)
 [![accuracy](https://img.shields.io/badge/MNIST-99.46%25-F8B33C?style=flat-square&labelColor=05060A)](#the-model)
@@ -251,6 +255,11 @@ MIT. See [LICENSE](LICENSE).
 MNIST is by Yann LeCun, Corinna Cortes and Christopher Burges. The trained weights in this
 repository are produced by `scripts/train.sh` and are reproducible from the seed recorded
 in `web/public/model/model.json`.
+
+The mark is four columns of pixels that are also a bar chart with one winner: the losers
+stay as separate squares because they are still unresolved, the winner is one continuous
+bar because it is not. It has no text and no filters, so it survives a favicon, an avatar,
+and a sanitiser. Source: [`logo.svg`](.github/assets/logo.svg).
 
 The banner, the architecture diagram and the share cards are built with
 [HyperFrames](https://hyperframes.heygen.com); their compositions are in
