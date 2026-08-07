@@ -364,13 +364,26 @@ class App {
     const audioStream = this.audio.captureStream();
     if (audioStream) for (const track of audioStream.getAudioTracks()) stream.addTrack(track);
 
-    const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find(
-      (m) => MediaRecorder.isTypeSupported(m),
-    );
+    // MP4/H.264 first, WebM only as a fallback.
+    //
+    // This clip exists to be posted, and Instagram rejects WebM outright while LinkedIn
+    // is unreliable with it — so the button was producing a file that could not be
+    // uploaded to the places people would want to upload it. Chrome and Edge can encode
+    // H.264 through MediaRecorder; Safari and Firefox fall through to WebM, which they
+    // can, and which at least plays locally.
+    const mime = [
+      'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+      'video/mp4;codecs=avc1',
+      'video/mp4',
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm',
+    ].find((m) => MediaRecorder.isTypeSupported(m));
     if (!mime) {
       this.toast('Recording is not supported in this browser');
       return;
     }
+    const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
 
     const chunks: Blob[] = [];
     const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
@@ -388,7 +401,7 @@ class App {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `pixel-to-prediction-${this.run?.evidence.top1 ?? 'digit'}.webm`;
+      a.download = `pixel-to-prediction-${this.run?.evidence.top1 ?? 'digit'}.${ext}`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
       this.recorder = null;

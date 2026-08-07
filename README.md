@@ -1,25 +1,35 @@
-# Pixel to Prediction
+<div align="center">
+
+![Pixel to Prediction](.github/assets/hero.png)
 
 **Draw a digit. Watch a real convolutional network take it apart, one layer at a time.**
 
-Everything on screen is a number the network actually produced. No pre-rendered video, no
-faked layers, no stock "AI glow". The filters you see sweeping across your drawing are the
-trained 5x5 weights. The heat on each feature map is that map's real activation. The
-sentence at the end is composed from gradients computed in your browser, in about two
-milliseconds.
+[![tests](https://img.shields.io/badge/rust%20tests-45%20passing-4FD8E8?style=flat-square&labelColor=05060A)](#the-test-that-actually-matters)
+[![accuracy](https://img.shields.io/badge/MNIST-99.46%25-F8B33C?style=flat-square&labelColor=05060A)](#the-model)
+[![size](https://img.shields.io/badge/payload-183%20KB%20gzipped-9AA6BC?style=flat-square&labelColor=05060A)](#how-it-is-built)
+[![licence](https://img.shields.io/badge/licence-MIT-9AA6BC?style=flat-square&labelColor=05060A)](LICENSE)
 
-![Sixteen second-layer feature maps, each drawn over a ghost of the digit](docs/media/stage-4-finding-shapes.jpg)
+</div>
 
 ---
+
+Everything on screen is a number the network actually produced. No pre-rendered video, no
+faked layers, no stock "AI glow". The filters sweeping across your drawing are the trained
+5x5 weights. The heat on each feature map is that map's real activation. The sentence at
+the end is composed from gradients computed in your browser, in about two milliseconds.
+
+It runs entirely on your device. There is no server, no API key, and nothing about your
+drawing leaves the page.
 
 ## The thing that makes this different
 
 Most CNN visualisations hand a model to an inference runtime, get logits back, and draw a
 diagram around them. That works right up until you want to show what happens *inside*,
-because every runtime throws the intermediates away.
+because every runtime throws the intermediates away, and the intermediates are the whole
+product here.
 
-So there is no runtime here. The forward pass **and the backward pass** are written from
-scratch in Rust. That single crate does three jobs:
+So there is no runtime. The forward pass **and the backward pass** are written from
+scratch in Rust. One crate does three jobs:
 
 1. trains the model natively, with rayon
 2. runs inference in the browser through WASM, keeping every intermediate tensor
@@ -30,30 +40,90 @@ approximated for the sake of the picture.
 
 ---
 
-## What you actually see
+## The seven stages
 
-| Stage | What is on screen | Where the numbers come from |
-| --- | --- | --- |
-| 1. Your digit | Your drawing, full size | The canvas |
-| 2. Preparing the input | Crop to the ink, scale to a 20px box, re-centre on the centre of mass | The real MNIST normalisation, step by step |
-| 3. First look | One learned filter sweeps down the image writing its response, then all eight resolve, then ReLU extinguishes every negative value | `conv1` pre-activation, so the negative half exists to be destroyed |
-| 4. Finding shapes | A 2x2 pooling close-up, then sixteen second-layer maps over a ghost of your digit | `pool1`, `conv2`, ranked by activation energy |
-| 5. Matching possibilities | 784 features into 32 hidden units into 10 candidates, cyan arguing for and coral arguing against | `weight x activation` per edge, ranked |
-| 6. The decision | Ten raw scores, then exponentiated, then split into one unit of certainty | `logits`, `exp(logit - max)`, `softmax` |
-| 7. The answer | Your ink in cool grey with warm attribution on top | `d(logit)/d(input) x input` |
+The whole walkthrough is about 57 seconds, and every frame below is a real capture.
 
-![The final answer with its gradient-derived explanation](docs/media/stage-7-answer.jpg)
+### 2. Preparing the input
 
-### Two details worth calling out
+Your drawing is cropped to the ink, scaled into a 20 pixel box, and re-centred on its
+centre of mass. This is the actual MNIST normalisation, shown step by step, because a
+network trained on centred digits will quietly fail on uncentred ones.
 
-**ReLU is drawn honestly.** Positive values look *identical* before and after, because
-ReLU does not touch them. Only the negative half changes, and it is extinguished rather
-than dimmed. Plenty of explainers make the survivors brighter, which teaches the wrong
-thing.
+![The drawing as a 28x28 grid of numbers](.github/assets/s01-input.webp)
+
+### 3. First look
+
+One learned filter reads across the image and writes its response as it goes. The point of
+holding on a single filter is that it never changes: the same 25 numbers are applied at
+every position, which is the part of convolution that people report not getting from
+animations.
+
+![One filter sweeping across the digit](.github/assets/s02-sweep.webp)
+
+Then the other seven resolve, staggered by how strongly each one fired rather than by
+index, so the order of appearance is itself information.
+
+![Eight feature maps from eight learned filters](.github/assets/s03-features.webp)
+
+### 4. Finding shapes
+
+Pooling is invisible at grid scale, so the camera comes back to one map for it. Each 2x2
+block keeps only its brightest cell, and the picture halves.
+
+![A 2x2 pooling close-up on a single feature map](.github/assets/s04-pooling.webp)
+
+Then sixteen richer features, built by combining the eight simple ones and ranked by how
+hard each fired.
+
+![Sixteen second-layer feature maps](.github/assets/s05-conv2.webp)
+
+### 5. Matching possibilities
+
+A dense layer is where most explainers give up and draw a hairball of lines. This one picks
+a single hidden unit and works it through in full: the 784 weights it holds reshape onto
+exactly the same grid as the pooled features, so the dot product can be *drawn* rather than
+asserted. What the unit wants, what your digit has, and where the two agree.
+
+![One hidden unit's dot product, drawn as three panels](.github/assets/s06-dotproduct.webp)
+
+A Rust test pins that the agreement panel really does sum to the unit's reported
+pre-activation, so the picture cannot drift away from the number.
+
+Then all 32 units, voting on all ten digits at once. Cyan argues for, coral argues against.
+
+![32 hidden units feeding 10 candidate digits](.github/assets/s07-lattice.webp)
+
+### 6. The decision
+
+Ten raw scores. Half of them negative, and they do not add up to anything yet.
+
+![Ten raw logits, several of them negative](.github/assets/s08-logits.webp)
+
+Exponentiate to stretch the gaps, then split one single unit of certainty between them.
+That container is drawn as an actual object, because "the bars got taller" and "one fixed
+budget was divided ten ways" look identical otherwise.
+
+![Softmax dividing one unit of certainty](.github/assets/s09-softmax.webp)
+
+### 7. The answer
+
+Your ink in cool grey, with warm attribution on top: warm where a pixel argued for the
+answer, cool where it argued against. These are real gradients, not a decorative glow.
+
+![The answer with gradient attribution over the ink](.github/assets/s10-answer.webp)
+
+---
+
+## Two details worth calling out
+
+**ReLU is drawn honestly.** Positive values look *identical* before and after, because ReLU
+does not touch them. Only the negative half changes, and it is extinguished rather than
+dimmed. Plenty of explainers make the survivors brighter, which teaches the wrong thing.
 
 **The explanation is measured, not templated.** Rust returns facts (per-region attribution,
 enclosed loop count, logit margin) and the UI does the phrasing. When the evidence is
-genuinely diffuse it says so instead of inventing a tidy reason.
+genuinely diffuse it says so, instead of inventing a tidy reason.
 
 ---
 
@@ -70,7 +140,7 @@ fc2        32 -> 10                -> softmax                   330 params
                                                        total 26,826 params
 ```
 
-**99.46% on the MNIST test set.** Trained in 126 seconds on eight cores.
+**99.46% on the MNIST test set**, after 32 epochs from seed 1234.
 
 Some of those choices are for the visualisation rather than the leaderboard, and that is
 deliberate:
@@ -78,7 +148,7 @@ deliberate:
 - **5x5 in conv1, not 3x3.** A 5x5 kernel rendered on screen reads as a recognisable
   oriented edge detector. A 3x3 one is visual mush.
 - **8 filters then 16.** Eight is the most you can show large and individually readable at
-  once; sixteen tiles as a 4x4 grid and reads as "more, and more abstract".
+  once. Sixteen tiles as a 4x4 grid and reads as "more, and more abstract".
 - **No batch norm.** Every operation in the graph has to be explainable in one plain
   sentence, and batch norm is not.
 
@@ -104,9 +174,8 @@ The trainer refuses to export below 99.3% test accuracy, so a bad run cannot sil
 ship, and it prints the full confusion matrix so a regression in one digit cannot hide
 behind a good headline number.
 
-### Requirements
-
-Rust stable with the `wasm32-unknown-unknown` target, `wasm-pack`, and Node 20+.
+**Requirements:** Rust stable with the `wasm32-unknown-unknown` target, `wasm-pack`, and
+Node 20+.
 
 ---
 
@@ -115,7 +184,7 @@ Rust stable with the `wasm32-unknown-unknown` target, `wasm-pack`, and Node 20+.
 ```
 crates/nnviz/          Rust: tensors, conv/pool/dense forward AND backward,
                        MNIST preprocessing, saliency, the native trainer,
-                       and the wasm bindings. 43 unit tests.
+                       and the wasm bindings. 45 unit tests.
 web/src/core/          Deterministic timeline, easing, palette, wasm loader
 web/src/gl/            WebGL2 renderer, written directly (no Three.js)
 web/src/scene/         Layout, choreography, per-frame drawing
@@ -123,7 +192,7 @@ web/src/ui/            Drawing surface, annotations, copy generation
 web/src/audio/         Procedural sound, synthesised at runtime
 ```
 
-**Total transfer is about 190 KB gzipped**, including the model weights and the WASM.
+**Total transfer is about 183 KB gzipped**, including the model weights and the WASM.
 
 A few decisions that shaped the rest:
 
@@ -132,22 +201,28 @@ recomputes everything from clip definitions, so scrubbing backward is bit-identi
 playing forward, speed changes are free, and a recorded clip matches what you watched
 exactly.
 
-**WebGL2, not WebGPU.** WebGPU reaches roughly 70% of browsers and still has gaps on
-Firefox/Linux and older Android. The actual GPU load here is trivial. A project that lives
-or dies on being shareable cannot exclude a third of phones for nothing.
+**WebGL2, not WebGPU.** WebGPU still has gaps on Firefox/Linux and older Android. The
+actual GPU load here is trivial. A project that lives or dies on being shareable cannot
+exclude a chunk of phones for nothing.
 
 **No Three.js.** This is a 2.5D compositing problem, not a 3D scene. A scene graph is the
 wrong abstraction and the bytes are better spent elsewhere.
 
+**Text never covers the picture.** The annotation layer measures each label and nudges it
+back inside the frame, and the scene fades a label out once the thing it names has left the
+shot. Both rules exist because a caption printed over a feature map is worse than no
+caption at all.
+
 ---
 
-## Tests
+## The test that actually matters
 
 ```bash
 cargo test --lib
 ```
 
-The two that matter most are `input_gradient_matches_numeric_gradient` and
+45 tests, and two of them carry the project:
+`input_gradient_matches_numeric_gradient` and
 `parameter_gradients_match_numeric_gradient`. They compare the analytic backward pass
 against a central-difference approximation through the whole network.
 
@@ -174,3 +249,7 @@ MIT. See [LICENSE](LICENSE).
 MNIST is by Yann LeCun, Corinna Cortes and Christopher Burges. The trained weights in this
 repository are produced by `scripts/train.sh` and are reproducible from the seed recorded
 in `web/public/model/model.json`.
+
+The banner is built with [HyperFrames](https://hyperframes.heygen.com); its source is
+[`.github/assets/hero.source.html`](.github/assets/hero.source.html). Every other image is
+a real capture of the app.

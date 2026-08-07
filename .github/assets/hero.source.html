@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=2400, height=800" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 2400px; height: 800px; overflow: hidden;
+        background: #05060a;
+      }
+      body { font-family: Inter, ui-sans-serif, -apple-system, 'Segoe UI', sans-serif; }
+
+      /* The app's own palette, so the banner and the product are the same object. */
+      :root {
+        --ground: #05060a;
+        --text: #f2f4f8;
+        --dim: #9aa6bc;
+        /* The app's own --text-faint is #6C7891, which measures 4.1:1 on this ground.
+           Lifted here rather than in the app, because a banner is read once at a glance
+           by people who did not choose to look at it. */
+        --faint: #808da7;
+        --pos: #4fd8e8;   /* evidence for */
+        --neg: #ff6b81;   /* evidence against */
+        --accent: #f8b33c;
+      }
+
+      #root { position: relative; width: 2400px; height: 800px; }
+
+      /* A faint centre lift so the bloom has something to sit against, matching the
+         renderer's own ground rather than a flat black rectangle. */
+      .ground {
+        position: absolute; inset: 0;
+        background:
+          radial-gradient(120% 150% at 62% 46%, rgba(30, 40, 62, 0.55) 0%, rgba(5, 6, 10, 0) 62%),
+          #05060a;
+      }
+
+      .copy { position: absolute; left: 132px; top: 236px; width: 820px; }
+      .dot {
+        width: 14px; height: 14px; border-radius: 50%;
+        background: var(--accent); box-shadow: 0 0 26px rgba(248, 179, 60, 0.7);
+        margin-bottom: 34px;
+      }
+      h1 {
+        font-size: 92px; font-weight: 600; letter-spacing: -0.025em;
+        color: var(--text); line-height: 1.02;
+      }
+      .sub {
+        margin-top: 26px; font-size: 30px; line-height: 1.45;
+        color: var(--dim); font-weight: 400; max-width: 700px;
+      }
+      .stats {
+        margin-top: 48px; font-size: 19px; color: var(--faint);
+        letter-spacing: 0.02em;
+      }
+      .stats b { color: var(--dim); font-weight: 500; }
+
+      /* ---- The schematic ------------------------------------------------
+         Three real stages of the actual pipeline, in the actual palette:
+         a 5x5 learned filter, the feature map it writes, the ten class
+         scores. Abstract enough to be decoration, accurate enough that it
+         is not lying about the architecture. */
+      .schematic { position: absolute; left: 1120px; top: 0; width: 1220px; height: 800px; }
+
+      /* Every stage is the same box, with its visual centred and its caption pinned to
+         the same baseline, so three objects of three different heights still read as one
+         row rather than as three things that happen to be near each other. */
+      .stage { position: absolute; top: 190px; height: 400px; }
+      .stage > .art {
+        height: 330px; display: flex; align-items: center; justify-content: center;
+      }
+      .cap {
+        position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+        white-space: nowrap;
+        font-size: 15px; letter-spacing: 0.14em; text-transform: uppercase;
+        color: var(--faint); text-align: center;
+      }
+
+      .kernel {
+        display: grid; grid-template-columns: repeat(5, 30px);
+        grid-template-rows: repeat(5, 30px); gap: 4px;
+      }
+      .kernel i { border-radius: 3px; }
+
+      .map {
+        display: grid; grid-template-columns: repeat(14, 15px);
+        grid-template-rows: repeat(14, 15px); gap: 2px;
+      }
+      .map i { border-radius: 2px; }
+
+      .bars { display: flex; align-items: flex-end; gap: 14px; height: 300px; }
+      .bars i { width: 26px; border-radius: 6px 6px 3px 3px; }
+
+      .arrow { position: absolute; height: 2px; background: linear-gradient(90deg, rgba(154,166,188,0), rgba(154,166,188,0.5), rgba(154,166,188,0)); }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="2"
+      data-width="2400"
+      data-height="800"
+      data-fps="30"
+    >
+      <div class="ground clip" data-start="0" data-duration="2" data-track-index="0"></div>
+
+      <div class="copy clip" data-start="0" data-duration="2" data-track-index="1">
+        <div class="dot"></div>
+        <h1>Pixel to<br />Prediction</h1>
+        <p class="sub">
+          Draw a digit and watch a real convolutional network take it apart, one layer at a
+          time. Every frame is drawn from live tensors.
+        </p>
+        <p class="stats">
+          <b>26,826</b> parameters &nbsp;·&nbsp; <b>99.46%</b> on MNIST &nbsp;·&nbsp;
+          Rust&nbsp;→&nbsp;WASM &nbsp;·&nbsp; no server, no API
+        </p>
+      </div>
+
+      <div class="schematic clip" data-start="0" data-duration="2" data-track-index="2">
+        <div class="stage" style="left: 20px; width: 166px">
+          <div class="art"><div class="kernel" id="kernel"></div></div>
+          <div class="cap">a learned filter</div>
+        </div>
+        <div class="arrow" style="left: 216px; top: 355px; width: 116px"></div>
+
+        <div class="stage" style="left: 362px; width: 236px">
+          <div class="art"><div class="map" id="map"></div></div>
+          <div class="cap">where it fires</div>
+        </div>
+        <div class="arrow" style="left: 628px; top: 355px; width: 116px"></div>
+
+        <div class="stage" style="left: 774px; width: 374px">
+          <div class="art"><div class="bars" id="bars"></div></div>
+          <div class="cap">ten scores, one answer</div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Deterministic pseudo-random so every render of this card is identical.
+      let seed = 20260807;
+      const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+
+      const kernel = document.getElementById('kernel');
+      for (let i = 0; i < 25; i++) {
+        const v = rnd() * 2 - 1;
+        const el = document.createElement('i');
+        const a = Math.min(1, Math.abs(v) * 1.15 + 0.12);
+        el.style.background = v >= 0
+          ? `rgba(79, 216, 232, ${a})`
+          : `rgba(255, 107, 129, ${a})`;
+        el.style.boxShadow = `0 0 ${10 * a}px rgba(${v >= 0 ? '79,216,232' : '255,107,129'}, ${a * 0.5})`;
+        kernel.appendChild(el);
+      }
+
+      // A stroke through the field, so the map reads as a response to something rather
+      // than as noise.
+      const map = document.getElementById('map');
+      for (let r = 0; r < 14; r++) {
+        for (let c = 0; c < 14; c++) {
+          const d = Math.abs(c - (3 + 7 * Math.sin((r / 13) * 2.1)));
+          const v = Math.max(0, 1 - d / 2.4) * (0.55 + rnd() * 0.45);
+          const el = document.createElement('i');
+          // The magma ramp the app uses for magnitude: black-anchored, so zero
+          // contributes nothing.
+          const t = Math.min(1, v);
+          const R = Math.round(255 * Math.min(1, t * 1.9));
+          const G = Math.round(255 * Math.max(0, t * 1.6 - 0.66));
+          const B = Math.round(255 * (t < 0.5 ? t * 1.5 : Math.max(0, 1.5 - t * 1.7)));
+          // Zero fades to the ground rather than to black. The magma ramp is
+          // black-anchored, and on a near-black ground an opaque black cell reads as a
+          // box drawn around the map instead of as the absence of a response.
+          el.style.background = `rgba(${R}, ${G}, ${B}, ${Math.min(1, t * 1.7)})`;
+          if (t > 0.55) el.style.boxShadow = `0 0 ${14 * t}px rgba(${R},${G},${B},0.55)`;
+          map.appendChild(el);
+        }
+      }
+
+      const bars = document.getElementById('bars');
+      const heights = [16, 22, 34, 300, 26, 44, 19, 30, 24, 18];
+      heights.forEach((h, i) => {
+        const el = document.createElement('i');
+        const win = h === 300;
+        el.style.height = h + 'px';
+        el.style.background = win ? 'var(--accent)' : 'rgba(79, 216, 232, 0.42)';
+        if (win) el.style.boxShadow = '0 0 60px rgba(248, 179, 60, 0.55)';
+        bars.appendChild(el);
+      });
+
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      window.__timelines['main'] = tl;
+    </script>
+  </body>
+</html>
