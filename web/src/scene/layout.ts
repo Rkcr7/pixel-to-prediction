@@ -37,13 +37,36 @@ export interface StationFrame {
   centerY: number;
 }
 
-export const STATIONS: StationFrame[] = [
-  { z: Z.input, width: 4.6, height: 4.6, margin: 1.4, centerY: 0 },
-  { z: Z.conv1, width: 11.6, height: 7.7, margin: 1.1, centerY: 0.78 },
-  { z: Z.conv2, width: 8.4, height: 8.2, margin: 1.14, centerY: 0 },
-  { z: Z.dense, width: 12.2, height: 7.4, margin: 1.12, centerY: 0 },
-  { z: Z.answer, width: 4.8, height: 4.8, margin: 1.35, centerY: 0 },
-];
+/**
+ * Station frames derived from the grid shapes actually in use, so a portrait reflow
+ * automatically reframes rather than needing a second set of hand-tuned numbers.
+ */
+export function stationFrames(aspect: number): StationFrame[] {
+  const portrait = isPortrait(aspect);
+  const c1 = conv1Grid(aspect);
+  const c2 = conv2Grid(aspect);
+  const kernelBand = portrait ? 2.5 : 1.9;
+
+  return [
+    { z: Z.input, width: 4.6, height: 4.6, margin: 1.4, centerY: 0 },
+    {
+      z: Z.conv1,
+      width: c1.cols * c1.cell + 0.45,
+      height: c1.rows * c1.cell + kernelBand,
+      margin: 1.1,
+      centerY: (kernelBand - 0.5) / 2,
+    },
+    {
+      z: Z.conv2,
+      width: c2.cols * c2.cell + 0.4,
+      height: c2.rows * c2.cell + 0.4,
+      margin: 1.14,
+      centerY: 0,
+    },
+    { z: Z.dense, width: 12.2, height: 7.4, margin: 1.12, centerY: 0 },
+    { z: Z.answer, width: 4.8, height: 4.8, margin: 1.35, centerY: 0 },
+  ];
+}
 
 /** Distance at which a box of `width` x `height` fits the frame, with margin. */
 export function fitDistance(frame: StationFrame, aspect: number): number {
@@ -60,8 +83,32 @@ export interface GridSpec {
   plate: number;
 }
 
-export const CONV1_GRID: GridSpec = { cols: 4, rows: 2, cell: 2.78, plate: 2.34 };
-export const CONV2_GRID: GridSpec = { cols: 4, rows: 4, cell: 2.02, plate: 1.82 };
+/**
+ * Feature-map grids come in two shapes.
+ *
+ * Retreating the camera can only fix clipping. Wide content in a tall viewport still
+ * ends up a thin band stranded in an empty frame: at iPhone portrait the 4x2 conv1 grid
+ * forces the camera back to 44 world units and leaves 20 units of vertical slack. The
+ * content has to change shape, so a portrait viewport gets a tall arrangement instead.
+ */
+export const PORTRAIT_ASPECT = 0.95;
+
+export const isPortrait = (aspect: number) => aspect < PORTRAIT_ASPECT;
+
+const CONV1_LANDSCAPE: GridSpec = { cols: 4, rows: 2, cell: 2.78, plate: 2.34 };
+const CONV1_PORTRAIT: GridSpec = { cols: 2, rows: 4, cell: 2.78, plate: 2.34 };
+const CONV2_LANDSCAPE: GridSpec = { cols: 4, rows: 4, cell: 2.02, plate: 1.82 };
+const CONV2_PORTRAIT: GridSpec = { cols: 2, rows: 8, cell: 2.02, plate: 1.82 };
+
+export const conv1Grid = (aspect: number): GridSpec =>
+  isPortrait(aspect) ? CONV1_PORTRAIT : CONV1_LANDSCAPE;
+
+export const conv2Grid = (aspect: number): GridSpec =>
+  isPortrait(aspect) ? CONV2_PORTRAIT : CONV2_LANDSCAPE;
+
+/** Landscape shapes, kept for the places that only need nominal sizes. */
+export const CONV1_GRID = CONV1_LANDSCAPE;
+export const CONV2_GRID = CONV2_LANDSCAPE;
 export const POOL2_GRID: GridSpec = { cols: 4, rows: 4, cell: 1.06, plate: 0.98 };
 
 /** Centre of cell `i` in a grid, laid out row-major and centred on the origin. */
@@ -77,15 +124,25 @@ export function gridCell(spec: GridSpec, i: number, z: number): Vec3 {
  * The eight learned kernels, in a row directly above the plates they produce, close
  * enough that the pairing reads as cause and effect rather than as two separate rows.
  */
-export function kernelSlot(i: number, count: number, z: number): Vec3 {
-  // Spread the whole row across the same width as the grid of plates below it, so the
-  // pairing is obvious and the row cannot run off the edge of the frame.
-  //
-  // The height clears the top row of plates (which reach y = 1.39 + plate/2) with a
-  // visible gap. Sitting the filters on top of their own output made both unreadable.
-  const span = CONV1_GRID.cell * CONV1_GRID.cols;
-  const spacing = span / count;
-  return [(i - (count - 1) / 2) * spacing, 3.42, z + 0.35];
+/**
+ * The learned filters, above the plates they produce.
+ *
+ * One row of eight in landscape. In portrait the grid is only two plates wide, so eight
+ * across would be either off-frame or too small to read the taps; two rows of four keeps
+ * them the same size and inside the frame.
+ */
+export function kernelSlot(i: number, count: number, z: number, aspect: number): Vec3 {
+  const grid = conv1Grid(aspect);
+  const span = grid.cols * grid.cell;
+  const top = (grid.rows * grid.cell) / 2;
+
+  if (isPortrait(aspect)) {
+    const cols = Math.ceil(count / 2);
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    return [(col - (cols - 1) / 2) * (span / cols), top + 1.7 - row * 1.0, z + 0.35];
+  }
+  return [(i - (count - 1) / 2) * (span / count), top + 0.98, z + 0.35];
 }
 
 // -- Stage 5: hidden units and class candidates ------------------------------

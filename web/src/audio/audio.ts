@@ -115,7 +115,7 @@ export class Audio {
       osc.frequency.value = freq;
       osc.detune.value = detune;
       const g = ctx.createGain();
-      g.gain.value = 0.06;
+      g.gain.value = 0.042;
       osc.connect(g).connect(filter);
       osc.start();
 
@@ -128,7 +128,10 @@ export class Audio {
       lfo.start();
     }
 
-    pad.gain.setTargetAtTime(0.34, ctx.currentTime, 1.4);
+    // Deliberately well under the cue sounds. The drone is there to stop the silence
+    // feeling dead, not to be a soundtrack, and it is the first thing that makes someone
+    // reach for the mute button.
+    pad.gain.setTargetAtTime(0.13, ctx.currentTime, 1.4);
   }
 
   private capture: MediaStreamAudioDestinationNode | null = null;

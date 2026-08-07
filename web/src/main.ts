@@ -119,6 +119,8 @@ class App {
       this.run = null;
       this.lastStageKey = '';
       this.scene.clearRun();
+      // Quiet the drone while nobody is watching a run.
+      this.audio.fadePad(0);
       $('composeFoot').textContent = '';
       this.setMode('compose');
     });
@@ -253,7 +255,7 @@ class App {
   private async startRun() {
     await this.audio.ensure();
     this.audio.startPad();
-    this.audio.fadePad(0.34);
+    this.audio.fadePad(0.13);
 
     const source = this.surface.extract();
     const run = this.engine.run(source, CANVAS_RES, CANVAS_RES);

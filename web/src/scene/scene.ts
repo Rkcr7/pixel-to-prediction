@@ -22,9 +22,9 @@ import {
   BAR_WIDTH,
   barX,
   candidateSlot,
-  CONV1_GRID,
   CANDIDATE_X,
-  CONV2_GRID,
+  conv1Grid,
+  conv2Grid,
   fitDistance,
   POOL2_GRID,
   FOV,
@@ -35,16 +35,23 @@ import {
   mixVec,
   POOL2_BLOCK_X,
   pool2Slot,
-  STATIONS,
+  stationFrames,
   Z,
+  type GridSpec,
+  type StationFrame,
   type Vec3,
 } from './layout';
 
 /** World size of a full 28x28 field at the input station. */
 const FIELD_SIZE = 4.4;
 
-/** Where the working filter sits while it sweeps: beside its own output, in frame. */
-const HERO_KERNEL_SLOT = (z: number): Vec3 => [-2.55, 1.72, z + 0.4];
+/**
+ * Where the working filter sits while it sweeps: beside its own output, and inside the
+ * frame the camera has pushed in to. In portrait it goes above rather than beside,
+ * because there is no horizontal room left.
+ */
+const heroKernelSlot = (z: number, portrait: boolean): Vec3 =>
+  portrait ? [-1.15, 2.85, z + 0.4] : [-2.55, 1.72, z + 0.4];
 
 const POS = hexToRgb(COLORS.positive);
 const NEG = hexToRgb(COLORS.negative);
@@ -93,6 +100,23 @@ export class Scene {
 
   /** Labels anchored to scene points, rebuilt every frame and drawn by the DOM. */
   readonly labels: Label[] = [];
+
+  /** Layout resolved for the current viewport shape, refreshed once per frame. */
+  private aspect = 1.78;
+  private portrait = false;
+  private frames: StationFrame[] = stationFrames(1.78);
+  private conv1: GridSpec = conv1Grid(1.78);
+  private conv2: GridSpec = conv2Grid(1.78);
+
+  private refreshLayout() {
+    const aspect = this.renderer.aspect;
+    if (Math.abs(aspect - this.aspect) < 1e-4) return;
+    this.aspect = aspect;
+    this.portrait = aspect < 0.95;
+    this.frames = stationFrames(aspect);
+    this.conv1 = conv1Grid(aspect);
+    this.conv2 = conv2Grid(aspect);
+  }
 
   private label(
     id: string,
@@ -342,6 +366,7 @@ export class Scene {
     const r = this.renderer;
     r.beginFrame();
     this.labels.length = 0;
+    this.refreshLayout();
 
     this.updateCamera(v);
     r.setCamera(this.camera);
@@ -371,25 +396,25 @@ export class Scene {
   }
 
   private updateCamera(v: Sampled) {
-    const s = clamp01((v['cam.station'] ?? 0) / (STATIONS.length - 1)) * (STATIONS.length - 1);
-    const i = Math.min(STATIONS.length - 2, Math.floor(s));
+    const frames = this.frames;
+    const s = clamp01((v['cam.station'] ?? 0) / (frames.length - 1)) * (frames.length - 1);
+    const i = Math.min(frames.length - 2, Math.floor(s));
     const f = s - i;
-    const z = lerp(STATIONS[i].z, STATIONS[i + 1].z, f);
+    const z = lerp(frames[i].z, frames[i + 1].z, f);
 
     // Distance is solved per frame from the content bounds and the live aspect, so the
     // framing survives any window shape including portrait phones. `cam.zoom` then lets
     // a beat push in on a single element — a filter reading the image, or one map being
     // pooled — which is the difference between watching a process and squinting at it.
-    const aspect = this.renderer.aspect;
+    const aspect = this.aspect;
     const zoom = v['cam.zoom'] ?? 1;
     const dist =
-      lerp(fitDistance(STATIONS[i], aspect), fitDistance(STATIONS[i + 1], aspect), f) * zoom;
+      lerp(fitDistance(frames[i], aspect), fitDistance(frames[i + 1], aspect), f) * zoom;
 
     // A station's centre is chosen to frame all of its content. When a beat pushes in on
     // one element the rest of that content is no longer in shot, so the aim has to come
     // back down with the zoom or the subject falls out of the bottom of the frustum.
-    const cy =
-      lerp(STATIONS[i].centerY, STATIONS[i + 1].centerY, f) + (v['cam.centerAdjust'] ?? 0);
+    const cy = lerp(frames[i].centerY, frames[i + 1].centerY, f) + (v['cam.centerAdjust'] ?? 0);
     const px = this.parallaxEnabled ? this.parallax[0] * 0.4 : 0;
     const py = this.parallaxEnabled ? this.parallax[1] * 0.26 : 0;
     this.camera.eye = [px, cy + py, z + dist];
@@ -536,8 +561,8 @@ export class Scene {
       // The working filter travels down beside the plate it is writing. The camera
       // pushes in for the sweep and would otherwise crop the kernel row entirely,
       // severing the only visible link between a filter and its own output.
-      const rowSlot = kernelSlot(i, C1, z);
-      const pos = isHero ? mixVec(rowSlot, HERO_KERNEL_SLOT(z), lift) : rowSlot;
+      const rowSlot = kernelSlot(i, C1, z, this.aspect);
+      const pos = isHero ? mixVec(rowSlot, heroKernelSlot(z, this.portrait), lift) : rowSlot;
       const size = isHero ? lerp(0.86, 1.32, lift) : 0.86;
       // Stage 4 is about pooling, and the filter row sits above the frame it needs.
       // Clear it out so the close-up has the shot to itself.
@@ -578,13 +603,13 @@ export class Scene {
       if (opacity <= 0.002) continue;
 
       const isHero = i === hero;
-      const grid = gridCell(CONV1_GRID, i, z);
+      const grid = gridCell(this.conv1, i, z);
       // Spread out into the grid, then the hero comes back to the middle for the
       // pooling close-up while the rest recede.
       const target = isHero ? mixVec(grid, heroCenter, focus) : grid;
       const pos = mixVec(heroCenter, target, Math.max(spread, focus));
       const size =
-        lerp(4.5, CONV1_GRID.plate, spread) * (isHero ? lerp(1, 4.7 / CONV1_GRID.plate, focus) : 1);
+        lerp(4.5, this.conv1.plate, spread) * (isHero ? lerp(1, 4.7 / this.conv1.plate, focus) : 1);
       const sweep = isHero ? (v['s3.sweep'] ?? 1) : spread > 0 ? 1 : 0;
       const recede = isHero ? 1 : lerp(1, 0.04, focus);
 
@@ -644,8 +669,8 @@ export class Scene {
     for (let i = 0; i < C2; i++) {
       const opacity = (v[`s4.plate${i}`] ?? 0) * fade;
       if (opacity <= 0.002) continue;
-      const pos = gridCell(CONV2_GRID, i, z);
-      const size = CONV2_GRID.plate * lerp(1, 0.78, pool);
+      const pos = gridCell(this.conv2, i, z);
+      const size = this.conv2.plate * lerp(1, 0.78, pool);
 
       // Selective luminance: strong maps hold, weak maps recede. The ranking is real —
       // it is the sum of squares of each map's activation. The floor stays well above
@@ -695,7 +720,7 @@ export class Scene {
     this.label(
       's4.top',
       'strongest response',
-      [gridCell(CONV2_GRID, top, z)[0], gridCell(CONV2_GRID, top, z)[1] - 1.12, z],
+      [gridCell(this.conv2, top, z)[0], gridCell(this.conv2, top, z)[1] - 1.12, z],
       rank * fade * 0.95,
       { kind: 'tag' },
     );
