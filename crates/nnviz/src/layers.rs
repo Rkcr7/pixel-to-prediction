@@ -305,6 +305,17 @@ mod tests {
     }
 
     #[test]
+    fn relu_backward_gates_on_preactivation() {
+        // Stage 3 draws ReLU as "the negative half is extinguished". That is only
+        // honest if the backward pass also keys off the pre-activation, not the
+        // already-clipped output: gating on the post-ReLU field would treat a
+        // genuine zero the same as a dead unit, and the attribution would lie.
+        let pre = Vol::from_vec(1, 1, 4, vec![-2.0, -0.001, 0.0, 3.5]);
+        let dout = Vol::from_vec(1, 1, 4, vec![1.0, 1.0, 1.0, 7.0]);
+        assert_eq!(relu_backward(&pre, &dout).data, vec![0.0, 0.0, 0.0, 7.0]);
+    }
+
+    #[test]
     fn pool_takes_max_and_records_winner() {
         let x = Vol::from_vec(1, 2, 2, vec![1.0, 9.0, 3.0, 4.0]);
         let p = pool_forward(&x);

@@ -416,6 +416,39 @@ mod tests {
         assert!(Net::from_bytes(&good).is_err());
     }
 
+    /// The weights that actually ship. Every other test uses `new_random`, so a
+    /// truncated or swapped model.bin would still go green and still be deployed.
+    #[test]
+    fn committed_model_loads_and_recognises_its_own_prototypes() {
+        let bytes = include_bytes!("../../../web/public/model/model.bin");
+        let net = Net::from_bytes(bytes).expect("committed model.bin should load");
+        assert_eq!(net.num_params(), 26_826);
+
+        let proto = include_bytes!("../../../web/public/model/prototypes.bin");
+        assert_eq!(&proto[0..4], b"PROT", "prototypes.bin is missing its magic");
+        assert_eq!(proto.len(), 4 + 10 * 784);
+
+        for digit in 0..10 {
+            let start = 4 + digit * 784;
+            let data: Vec<f32> = proto[start..start + 784]
+                .iter()
+                .map(|b| *b as f32 / 255.0)
+                .collect();
+            let a = net.forward(&Vol::from_vec(1, 28, 28, data));
+            assert_eq!(
+                a.predicted(),
+                digit,
+                "prototype of {digit} was classified as {}",
+                a.predicted()
+            );
+            assert!(
+                a.probs[digit] > 0.5,
+                "prototype of {digit} only scored {}",
+                a.probs[digit]
+            );
+        }
+    }
+
     /// End-to-end numeric gradient check through the whole network, on the exact quantity
     /// the explanation engine uses: d(logit)/d(input).
     #[test]
