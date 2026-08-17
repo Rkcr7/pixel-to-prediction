@@ -459,18 +459,6 @@ class App {
       return;
     }
 
-    // Capture the composited frame, not the raw scene.
-    //
-    // captureStream() captures one canvas and nothing else, and every word in this app is
-    // DOM layered over the WebGL canvas. Recording the scene canvas produced a clip of
-    // shapes moving with no annotation, no caption and no answer attached to any of it,
-    // which is most of what the piece is for.
-    this.compositor.sync(canvas, window.innerWidth);
-    this.recording = true;
-    const stream = this.compositor.canvas.captureStream(60);
-    const audioStream = this.audio.captureStream();
-    if (audioStream) for (const track of audioStream.getAudioTracks()) stream.addTrack(track);
-
     // MP4/H.264 first, WebM only as a fallback.
     //
     // This clip exists to be posted, and Instagram rejects WebM outright while LinkedIn
@@ -478,6 +466,11 @@ class App {
     // uploaded to the places people would want to upload it. Chrome and Edge can encode
     // H.264 through MediaRecorder; Safari and Firefox fall through to WebM, which they
     // can, and which at least plays locally.
+    //
+    // The codec check has to happen before any recording state is latched. Doing it
+    // after captureStream() left `recording` true on a browser that could not encode,
+    // so every later frame paid for a compositor blit that nobody was watching and
+    // the button could never be tried again.
     const mime = [
       'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
       'video/mp4;codecs=avc1',
@@ -492,8 +485,22 @@ class App {
     }
     const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
 
+    // Capture the composited frame, not the raw scene.
+    //
+    // captureStream() captures one canvas and nothing else, and every word in this app is
+    // DOM layered over the WebGL canvas. Recording the scene canvas produced a clip of
+    // shapes moving with no annotation, no caption and no answer attached to any of it,
+    // which is most of what the piece is for.
+    this.compositor.sync(canvas, window.innerWidth);
+    this.recording = true;
+    const stream = this.compositor.canvas.captureStream(60);
+    const audioStream = this.audio.captureStream();
+    if (audioStream) for (const track of audioStream.getAudioTracks()) stream.addTrack(track);
+
     const chunks: Blob[] = [];
     const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
+    const previousSpeed = this.player.speed;
+    const previousSpeedIndex = this.speedIndex;
     recorder.ondataavailable = (e) => {
       if (e.data.size) chunks.push(e.data);
     };
@@ -514,6 +521,12 @@ class App {
       this.recorder = null;
       this.recording = false;
       this.scene.parallaxEnabled = true;
+      // The 2x bump is only for the capture. Leaving it in place meant "Watch again"
+      // after a recording always ran at 2x, and the speed button no longer matched
+      // the rate the user had chosen.
+      this.player.speed = previousSpeed;
+      this.speedIndex = previousSpeedIndex;
+      $('speedBtn').textContent = `${previousSpeed}×`;
       this.toast('Clip saved');
     };
 
