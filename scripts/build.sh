@@ -24,6 +24,9 @@ fi
 echo "==> typecheck"
 (cd web && npx tsc --noEmit)
 
+echo "==> web tests"
+(cd web && npm test)
+
 echo "==> vite build"
 (cd web && npx vite build)
 

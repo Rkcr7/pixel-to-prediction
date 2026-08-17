@@ -193,7 +193,8 @@ Node 20+.
 crates/nnviz/          Rust: tensors, conv/pool/dense forward AND backward,
                        MNIST preprocessing, saliency, the native trainer,
                        and the wasm bindings. 49 unit tests.
-web/src/core/          Deterministic timeline, easing, palette, wasm loader
+web/src/core/          Deterministic timeline, easing, palette, wasm loader.
+                       16 unit tests pin that sample(t) is a pure function of time.
 web/src/gl/            WebGL2 renderer, written directly (no Three.js)
 web/src/scene/         Layout, choreography, per-frame drawing
 web/src/ui/            Drawing surface, annotations, copy generation

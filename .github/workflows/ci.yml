@@ -19,6 +19,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
 
       - uses: Swatinem/rust-cache@v2
 
@@ -42,11 +44,15 @@ jobs:
 
       - name: Install web dependencies
         working-directory: web
-        run: npm install
+        run: npm ci
 
       - name: Typecheck
         working-directory: web
         run: npx tsc --noEmit
+
+      - name: Web unit tests
+        working-directory: web
+        run: npm test
 
       - name: Build
         working-directory: web
