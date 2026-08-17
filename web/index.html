@@ -72,9 +72,9 @@
         </div>
         <div class="topbar__right">
           <span class="badge" id="modelBadge" title="This model runs entirely in your browser"></span>
-          <button class="icon-btn" id="soundBtn" type="button" aria-pressed="true" title="Sound">
+          <button class="icon-btn" id="soundBtn" type="button" aria-pressed="true" title="Sound on">
             <span class="icon-btn__on" aria-hidden="true">◍</span>
-            <span class="visually-hidden">Toggle sound</span>
+            <span class="visually-hidden">Sound on, click to mute</span>
           </button>
           <!--
             The GitHub mark, not a generic arrow. An arrow says "this goes somewhere
@@ -119,7 +119,12 @@
           </p>
 
           <div class="pad">
-            <canvas id="pad" class="pad__canvas" aria-label="Drawing area"></canvas>
+            <canvas
+              id="pad"
+              class="pad__canvas"
+              role="img"
+              aria-label="Drawing area. Draw a single digit from 0 to 9 with the mouse or finger."
+            ></canvas>
             <div class="pad__hint" id="padHint">
               <span>Draw one digit</span>
             </div>

@@ -175,10 +175,16 @@ class App {
     });
 
     const sound = $<HTMLButtonElement>('soundBtn');
-    sound.setAttribute('aria-pressed', String(this.audio.enabled));
+    const syncSound = () => {
+      sound.setAttribute('aria-pressed', String(this.audio.enabled));
+      sound.title = this.audio.enabled ? 'Sound on' : 'Sound off';
+      const label = sound.querySelector('.visually-hidden');
+      if (label) label.textContent = this.audio.enabled ? 'Sound on, click to mute' : 'Sound off, click to unmute';
+    };
+    syncSound();
     sound.addEventListener('click', () => {
       this.audio.setEnabled(!this.audio.enabled);
-      sound.setAttribute('aria-pressed', String(this.audio.enabled));
+      syncSound();
     });
 
     this.wireScrub();
@@ -449,7 +455,10 @@ class App {
 
     this.fillFoolVerdict(e);
     $('resultDigit').textContent = String(e.top1);
-    $('resultPct').textContent = formatConfidence(e.p1);
+    $('resultDigit').setAttribute('aria-label', `Predicted digit ${e.top1}`);
+    const confidenceLabel = formatConfidence(e.p1);
+    $('resultPct').textContent = confidenceLabel;
+    $('resultPct').setAttribute('aria-label', `Confidence ${confidenceLabel}`);
     // `verdict` already ends its own sentence, so the confidence phrase starts a new one
     // and has to be capitalised. Joined raw it reads "That is a 3. no doubt at all."
     const confidence = words.confidence;
@@ -461,17 +470,26 @@ class App {
 
     const dist = $('dist');
     dist.innerHTML = '';
+    dist.setAttribute('role', 'list');
     for (let d = 0; d < 10; d++) {
       const col = document.createElement('div');
       col.className = 'dist__col' + (d === e.top1 ? ' dist__col--top' : '');
+      col.setAttribute('role', 'listitem');
+      const pct = (run.probs[d] * 100).toFixed(1);
+      col.setAttribute(
+        'aria-label',
+        d === e.top1 ? `${d}, ${pct} percent, predicted` : `${d}, ${pct} percent`,
+      );
       const bar = document.createElement('div');
       bar.className = 'dist__bar';
+      bar.setAttribute('aria-hidden', 'true');
       // A square root makes the small probabilities visible without lying about which
       // one won; the label carries the exact number.
       bar.style.height = `${Math.max(2, Math.sqrt(run.probs[d]) * 100)}%`;
-      bar.title = `${d}: ${(run.probs[d] * 100).toFixed(2)}%`;
+      bar.title = `${d}: ${pct}%`;
       const label = document.createElement('span');
       label.className = 'dist__label';
+      label.setAttribute('aria-hidden', 'true');
       label.textContent = String(d);
       col.append(bar, label);
       dist.appendChild(col);
