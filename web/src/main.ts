@@ -56,7 +56,7 @@ class App {
    */
   private compositor = new FrameCompositor();
   private recording = false;
-  private reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  private reducedMotion = false;
 
   async boot() {
     const stage = $<HTMLCanvasElement>('stage');
@@ -83,6 +83,7 @@ class App {
     ).toFixed(2)}% on MNIST · runs on your device`;
 
     this.wire();
+    this.wireReducedMotion();
     this.wireContextLoss();
     this.resize();
     this.setMode('compose');
@@ -229,10 +230,38 @@ class App {
         this.jumpStage(-1);
       } else if (e.code === 'Enter' && this.mode === 'compose' && !this.surface.isEmpty) {
         void this.reveal();
-      } else if (e.key.toLowerCase() === 'c') {
+      } else if (e.key === 'Escape' && (this.mode === 'reveal' || this.mode === 'result')) {
+        this.returnToPad();
+      } else if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey) && this.mode === 'compose') {
+        e.preventDefault();
+        this.surface.undo();
+      } else if (e.key.toLowerCase() === 'c' && this.mode === 'compose' && !e.ctrlKey && !e.metaKey) {
         this.surface.clear();
       }
     });
+  }
+
+  /**
+   * Reduced motion is a live preference, not a boot-time snapshot.
+   *
+   * The old check ran once at construction. Someone who turned the OS setting on
+   * mid-session still got the 57-second walkthrough, which is the opposite of what
+   * they just asked for. Listening for the change also covers the case where the
+   * media query is not available at all (older WebViews): we stay on the full
+   * walkthrough rather than throwing during boot.
+   */
+  private wireReducedMotion() {
+    const mq = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+    if (!mq) return;
+    const apply = () => {
+      this.reducedMotion = mq.matches;
+    };
+    apply();
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', apply);
+    } else if (typeof mq.addListener === 'function') {
+      mq.addListener(apply);
+    }
   }
 
   private wireScrub() {

@@ -242,8 +242,8 @@ screen would look broken. A numerical gradient check is the only thing that catc
 
 ## Accessibility and behaviour
 
-- Full keyboard control: space to play or pause, arrows to step between stages, enter to reveal
-- `prefers-reduced-motion` skips straight to the answer
+- Full keyboard control: space to play or pause, arrows to step between stages, enter to reveal, escape back to the pad, C to clear, Ctrl/⌘Z to undo
+- `prefers-reduced-motion` skips straight to the answer, and is watched live rather than sampled once at boot
 - Sound is synthesised, off-switchable, and remembers your choice
 - Adaptive render scale driven by the median of recent frame times, with hysteresis
 - Works on touch, and the layout reflows for portrait
