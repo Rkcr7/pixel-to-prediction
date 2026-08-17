@@ -223,11 +223,8 @@ export class DrawSurface {
     this.repaint();
   }
 
-  private repaint() {
-    const ctx = this.ctx;
-    ctx.clearRect(0, 0, this.res, this.res);
-    // Under the ink: it is a suggestion about the drawing, not part of it.
-    if (this.hint) ctx.drawImage(this.hint, 0, 0);
+  /** Background plus strokes. Never the flip-hint overlay. */
+  private paintInk(ctx: CanvasRenderingContext2D) {
     if (this.background) ctx.drawImage(this.background, 0, 0);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -256,6 +253,14 @@ export class DrawSurface {
       ctx.lineTo(last.x, last.y);
       ctx.stroke();
     }
+  }
+
+  private repaint() {
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, this.res, this.res);
+    // Under the ink: it is a suggestion about the drawing, not part of it.
+    if (this.hint) ctx.drawImage(this.hint, 0, 0);
+    this.paintInk(ctx);
   }
 
   get isEmpty(): boolean {
@@ -377,11 +382,19 @@ export class DrawSurface {
    * Extract ink as a CANVAS_RES square of floats in [0,1]. Downsampling through
    * `drawImage` uses the browser's own filtered resampler, which antialiases the stroke
    * the way MNIST's own normalisation did.
+   *
+   * Painted from the ink layers only. The flip-hint overlay is drawn with alpha, and
+   * this function treats alpha as coverage, so compositing the visible canvas would
+   * feed the glow back into the network on the next reveal — exactly when someone is
+   * trying to change one stroke.
    */
   extract(): Float32Array {
     const ex = this.extractCtx;
-    ex.clearRect(0, 0, CANVAS_RES, CANVAS_RES);
-    ex.drawImage(this.canvas, 0, 0, CANVAS_RES, CANVAS_RES);
+    const scale = CANVAS_RES / this.res;
+    ex.setTransform(scale, 0, 0, scale, 0, 0);
+    ex.clearRect(0, 0, this.res, this.res);
+    this.paintInk(ex);
+    ex.setTransform(1, 0, 0, 1, 0, 0);
     const data = ex.getImageData(0, 0, CANVAS_RES, CANVAS_RES).data;
     const out = new Float32Array(CANVAS_RES * CANVAS_RES);
     for (let i = 0, p = 0; i < data.length; i += 4, p++) {
